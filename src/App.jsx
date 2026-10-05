@@ -13,8 +13,7 @@ import ResetPassword from "./Pages/ResetPassword";
 
 function App() {
   return (
-    <BrowserRouter>
-
+    <BrowserRouter basename="/VoW">
       <Routes>
 
         {/* Public Website */}
@@ -34,13 +33,12 @@ function App() {
         <Route path="/student-dashboard" element={<StudentDashboard />} />
         <Route path="/student-profile" element={<StudentProfile />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
-<Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* Admin Portal */}
         <Route path="/admin-dashboard" element={<AdminDashboard />} />
 
       </Routes>
-
     </BrowserRouter>
   );
 }
