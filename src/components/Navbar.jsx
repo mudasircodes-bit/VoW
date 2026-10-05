@@ -1,10 +1,30 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 
 function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
 
+    const menuRef = useRef(null);
+
+useEffect(() => {
+  const handleClickOutside = (event) => {
+    if (menuRef.current && !menuRef.current.contains(event.target)) {
+      setMenuOpen(false);
+    }
+  };
+
+  if (menuOpen) {
+    document.addEventListener("mousedown", handleClickOutside);
+  }
+
+  return () => {
+    document.removeEventListener("mousedown", handleClickOutside);
+  };
+}, [menuOpen]);
   return (
-    <nav className="fixed top-0 left-0 z-50 w-full border-b border-slate-200 bg-white">
+    <nav
+  ref={menuRef}
+  className="fixed top-0 left-0 z-50 w-full border-b border-slate-200 bg-white"
+>
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
 
         {/* Logo */}
@@ -29,34 +49,21 @@ function Navbar() {
         {/* Desktop Menu */}
         <div className="hidden items-center gap-8 md:flex">
 
-          <a
-            href="#home"
-            className="relative font-medium text-slate-700 transition-colors duration-300 hover:text-[#00A6A6] after:absolute after:-bottom-2 after:left-0 after:h-0.5 after:w-0 after:bg-[#00A6A6] after:transition-all after:duration-300 hover:after:w-full"
-          >
-            Home
-          </a>
+         <a href="#home" onClick={() => setMenuOpen(false)}>
+  Home
+</a>
 
-          <a
-            href="#about"
-            className="relative font-medium text-slate-700 transition-colors duration-300 hover:text-[#00A6A6] after:absolute after:-bottom-2 after:left-0 after:h-0.5 after:w-0 after:bg-[#00A6A6] after:transition-all after:duration-300 hover:after:w-full"
-          >
-            About
-          </a>
+<a href="#about" onClick={() => setMenuOpen(false)}>
+  About
+</a>
 
-          <a
-            href="#courses"
-            className="relative font-medium text-slate-700 transition-colors duration-300 hover:text-[#00A6A6] after:absolute after:-bottom-2 after:left-0 after:h-0.5 after:w-0 after:bg-[#00A6A6] after:transition-all after:duration-300 hover:after:w-full"
-          >
-            Courses
-          </a>
+<a href="#courses" onClick={() => setMenuOpen(false)}>
+  Courses
+</a>
 
-          <a
-            href="#contact"
-            className="relative font-medium text-slate-700 transition-colors duration-300 hover:text-[#00A6A6] after:absolute after:-bottom-2 after:left-0 after:h-0.5 after:w-0 after:bg-[#00A6A6] after:transition-all after:duration-300 hover:after:w-full"
-          >
-            Contact
-          </a>
-
+<a href="#contact" onClick={() => setMenuOpen(false)}>
+  Contact
+</a>
           {/* Sign Up */}
           <a
             href="/signup"
