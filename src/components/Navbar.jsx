@@ -10,7 +10,7 @@ function Navbar() {
         {/* Logo */}
         <a href="#home" className="flex items-center gap-3">
           <img
-            src="/log.jpg"
+            src={`${import.meta.env.BASE_URL}log.jpg`}
             alt="The Voice of Wisdom Logo"
             className="h-11 w-11 rounded-lg object-contain"
           />

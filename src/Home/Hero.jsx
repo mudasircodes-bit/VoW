@@ -52,7 +52,7 @@ function Hero() {
 <div className="flex justify-center lg:justify-end">
   <div className="w-full max-w-lg overflow-hidden rounded-3xl shadow-xl transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl">
     <img
-      src="/pic.jpg"
+     src={`${import.meta.env.BASE_URL}pic.jpg`}
       alt="The Voice of Wisdom"
       className="h=full w-full bg-white object-contain transition-transform duration-500 hover:scale-105"
     />

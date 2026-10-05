@@ -52,7 +52,7 @@ function Login() {
           <div className="hidden bg-[#12355B] p-12 lg:flex lg:flex-col lg:justify-center">
 
             <img
-              src="/log.jpg"
+              src={`${import.meta.env.BASE_URL}log.jpg`}
               alt="The Voice of Wisdom Logo"
               className="mb-8 h-20 w-20 rounded-2xl object-contain"
             />

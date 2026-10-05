@@ -48,7 +48,7 @@ function AboutSection() {
             <div className="overflow-hidden rounded-2xl border border-[#DDE7EA] bg-white shadow-md transition-all duration-300 hover:-translate-y-2 hover:border-[#00A6A6] hover:shadow-xl">
               <div className="h-72 overflow-hidden bg-slate-100">
                 <img
-                  src="/Driector.jpg"
+                  src={`${import.meta.env.BASE_URL}Driector.jpg`}
                   alt="Director"
                   className="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
                 />
@@ -76,7 +76,7 @@ function AboutSection() {
             <div className="overflow-hidden rounded-2xl border border-[#DDE7EA] bg-white shadow-md transition-all duration-300 hover:-translate-y-2 hover:border-[#00A6A6] hover:shadow-xl">
               <div className="h-72 overflow-hidden bg-slate-100">
                 <img
-                  src="/Duty Driector.jpg"
+                  src={`${import.meta.env.BASE_URL}Duty Driector.jpg`}
                   alt="Deputy Director"
                   className="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
                 />
@@ -104,7 +104,7 @@ function AboutSection() {
             <div className="overflow-hidden rounded-2xl border border-[#DDE7EA] bg-white shadow-md transition-all duration-300 hover:-translate-y-2 hover:border-[#00A6A6] hover:shadow-xl">
               <div className="h-72 overflow-hidden bg-slate-100">
                 <img
-                  src="/Assisstant Driector.jpg"
+                  src={`${import.meta.env.BASE_URL}Assisstant Driector.jpg`}
                   alt="Assistant Director"
                   className="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
                 />
@@ -217,7 +217,7 @@ function AboutSection() {
           {/* Picture - Right */}
           <div className="overflow-hidden rounded-3xl shadow-xl transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl">
             <img
-              src="/acticities.jpg"
+              src={`${import.meta.env.BASE_URL}acticities.jpg`}
               alt="The Voice of Wisdom Classroom"
               className="h-80 w-full object-cover transition-transform duration-500 hover:scale-105 sm:h-96"
             />
@@ -232,7 +232,7 @@ function AboutSection() {
           {/* Picture - Left */}
           <div className="overflow-hidden rounded-3xl shadow-xl transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl">
             <img
-              src="/class roon.jpg"
+              src={`${import.meta.env.BASE_URL}class roon.jpg`}
               alt="Student Activities at The Voice of Wisdom"
               className="h-80 w-full object-cover transition-transform duration-500 hover:scale-105 sm:h-96"
             />
