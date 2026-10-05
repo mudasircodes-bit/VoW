@@ -13,7 +13,7 @@ import ResetPassword from "./Pages/ResetPassword";
 
 function App() {
   return (
-    <BrowserRouter basename="/VoW">
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
       <Routes>
 
         {/* Public Website */}
