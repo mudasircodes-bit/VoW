@@ -1,4 +1,17 @@
+import { useNavigate } from "react-router-dom";
+import { supabase } from "../lib/supabaseClient";
+
 function StudentDashboard() {
+ const handleLogout = async () => {
+  const { error } = await supabase.auth.signOut();
+
+  if (error) {
+    console.error("Logout error:", error.message);
+    return;
+  }
+
+  navigate("/login");
+};
   return (
     <div className="min-h-screen bg-slate-50">
 
@@ -16,9 +29,12 @@ function StudentDashboard() {
             </h1>
           </div>
 
-          <button className="rounded-lg bg-white px-5 py-2 font-semibold text-[#12355B] transition hover:bg-[#00A6A6] hover:text-white">
-            Logout
-          </button>
+          <button
+  onClick={handleLogout}
+  className="rounded-lg bg-white px-5 py-2 font-semibold text-[#12355B] transition hover:bg-[#00A6A6] hover:text-white"
+>
+  Logout
+</button>
 
         </div>
       </header>
