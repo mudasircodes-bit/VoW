@@ -2,7 +2,9 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 
 function StudentDashboard() {
- const handleLogout = async () => {
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
   const { error } = await supabase.auth.signOut();
 
   if (error) {
