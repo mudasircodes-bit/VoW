@@ -117,91 +117,172 @@ zohaib85@yahoo.com
           {/* Contact Form */}
           <div className="rounded-3xl border border-[#DDE7EA] bg-white p-8 shadow-lg lg:p-10">
 
-            <h3 className="text-3xl font-bold text-[#12355B]">
-              Send Us a Message
-            </h3>
+  <h3 className="text-3xl font-bold text-[#12355B]">
+    Student Information
+  </h3>
 
-            <p className="mt-3 text-slate-600">
-              Fill out the form below and we will get back to you.
-            </p>
+  <p className="mt-3 text-slate-600">
+    Fill out the form below and we will get back to you.
+  </p>
 
-            <form className="mt-8 space-y-5">
+  <form className="mt-8 space-y-5">
 
-              {/* Name */}
-              <div>
-                <label className="mb-2 block font-semibold text-[#12355B]">
-                  Full Name
-                </label>
+    {/* Full Name */}
+    <div>
+      <label className="mb-2 block font-semibold text-[#12355B]">
+        Full Name
+      </label>
 
-                <input
-                  type="text"
-                  placeholder="Enter your full name"
-                  className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
-                />
-              </div>
+      <input
+        type="text"
+        placeholder="Enter your full name"
+        className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
+      />
+    </div>
 
-              {/* Email */}
-              <div>
-                <label className="mb-2 block font-semibold text-[#12355B]">
-                  Email Address
-                </label>
+    {/* Father's Name */}
+    <div>
+      <label className="mb-2 block font-semibold text-[#12355B]">
+        Father's Name
+      </label>
 
-                <input
-                  type="email"
-                  placeholder="Enter your email"
-                  className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
-                />
-              </div>
+      <input
+        type="text"
+        placeholder="Enter father's name"
+        className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
+      />
+    </div>
 
-              {/* Phone */}
-              <div>
-                <label className="mb-2 block font-semibold text-[#12355B]">
-                  Phone Number
-                </label>
+    {/* Date of Birth */}
+    <div>
+      <label className="mb-2 block font-semibold text-[#12355B]">
+        Date of Birth
+      </label>
 
-                <input
-                  type="tel"
-                  placeholder="Enter your phone number"
-                  className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
-                />
-              </div>
+      <input
+        type="date"
+        className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
+      />
+    </div>
 
-              {/* Subject */}
-              <div>
-                <label className="mb-2 block font-semibold text-[#12355B]">
-                  Subject
-                </label>
+    {/* Phone */}
+    <div>
+      <label className="mb-2 block font-semibold text-[#12355B]">
+        Phone Number
+      </label>
 
-                <input
-                  type="text"
-                  placeholder="Admission / Course / General Inquiry"
-                  className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
-                />
-              </div>
+      <input
+        type="tel"
+        placeholder="Enter your phone number"
+        className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
+      />
+    </div>
 
-              {/* Message */}
-              <div>
-                <label className="mb-2 block font-semibold text-[#12355B]">
-                  Message
-                </label>
+    {/* Address */}
+    <div>
+      <label className="mb-2 block font-semibold text-[#12355B]">
+        Address
+      </label>
 
-                <textarea
-                  rows="5"
-                  placeholder="Write your message..."
-                  className="w-full resize-none rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
-                ></textarea>
-              </div>
+      <textarea
+        rows="3"
+        placeholder="Enter your complete address"
+        className="w-full resize-none rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
+      ></textarea>
+    </div>
 
-              {/* Button */}
-              <button
-                type="submit"
-                className="w-full rounded-xl bg-[#12355B] px-6 py-3.5 font-semibold text-white transition-all duration-300 hover:-translate-y-1 hover:bg-[#00A6A6] hover:shadow-lg"
-              >
-                Send Message
-              </button>
+    {/* Course / Program */}
+    <div>
+      <label className="mb-2 block font-semibold text-[#12355B]">
+        Course / Program
+      </label>
 
-            </form>
-          </div>
+      <select
+        className="w-full rounded-xl border border-[#DDE7EA] bg-white px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
+      >
+        <option value="">Select course / program</option>
+
+        <option value="Grade 1">Grade 1</option>
+        <option value="Grade 2">Grade 2</option>
+        <option value="Grade 3">Grade 3</option>
+        <option value="Grade 4">Grade 4</option>
+        <option value="Grade 5">Grade 5</option>
+        <option value="Grade 6">Grade 6</option>
+        <option value="Grade 7">Grade 7</option>
+        <option value="Grade 8">Grade 8</option>
+        <option value="Grade 9">Grade 9</option>
+        <option value="Grade 10">Grade 10</option>
+        <option value="Grade 11">Grade 11</option>
+        <option value="Grade 12">Grade 12</option>
+
+        <option value="English Language Program">
+          English Language Program
+        </option>
+      </select>
+    </div>
+
+    {/* Class */}
+    <div>
+      <label className="mb-2 block font-semibold text-[#12355B]">
+        Class
+      </label>
+
+      <input
+        type="text"
+        placeholder="e.g. Class 10"
+        className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
+      />
+    </div>
+
+    {/* Section */}
+    <div>
+      <label className="mb-2 block font-semibold text-[#12355B]">
+        Section
+      </label>
+
+      <input
+        type="text"
+        placeholder="e.g. A"
+        className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
+      />
+    </div>
+
+    {/* Email */}
+    <div>
+      <label className="mb-2 block font-semibold text-[#12355B]">
+        Email Address
+      </label>
+
+      <input
+        type="email"
+        placeholder="Enter your email"
+        className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
+      />
+    </div>
+
+    {/* Message */}
+    {/* <div>
+      <label className="mb-2 block font-semibold text-[#12355B]">
+        Message / Inquiry
+      </label>
+
+      <textarea
+        rows="5"
+        placeholder="Write your question or inquiry..."
+        className="w-full resize-none rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
+      ></textarea>
+    </div> */}
+
+    {/* Button */}
+    <button
+      type="submit"
+      className="w-full rounded-xl bg-[#12355B] px-6 py-3.5 font-semibold text-white transition-all duration-300 hover:-translate-y-1 hover:bg-[#00A6A6] hover:shadow-lg"
+    >
+      Submit Information
+    </button>
+
+  </form>
+</div>
 
         </div>
 

@@ -12,13 +12,24 @@ function SignUp() {
     dateOfBirth: "",
     phone: "",
     address: "",
-    className: "",
-    section: "",
+    classSection: "",
     course: "",
     email: "",
     password: "",
     confirmPassword: "",
   });
+
+  // Grade 1A to Grade 8D
+  const schoolClasses = [];
+
+  for (let grade = 1; grade <= 8; grade++) {
+    for (const section of ["A", "B", "C", "D"]) {
+      schoolClasses.push(`${grade}${section}`);
+    }
+  }
+
+  const isEnglishProgram =
+    formData.course === "English Language Program";
 
   const [photo, setPhoto] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -63,10 +74,6 @@ function SignUp() {
     setPhoto(file);
   };
 
-  // English Language Program does not require Class or Section
-  const isEnglishProgram =
-    formData.course === "English Language Program";
-
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -88,24 +95,20 @@ function SignUp() {
       return;
     }
 
-    // Class and Section are required for school students
-    // but optional for English Language Program students.
-    if (!isEnglishProgram) {
-      if (!formData.className.trim()) {
-        setError("Class is required for school students.");
-        return;
-      }
-
-      if (!formData.section.trim()) {
-        setError("Section is required for school students.");
-        return;
-      }
+    // School students must select a class.
+    // English Language Program students do not need one.
+    if (!isEnglishProgram && !formData.classSection) {
+      setError("Please select a class and section.");
+      return;
     }
 
     setLoading(true);
 
     try {
-      // 1. Create Supabase authentication account
+      // =========================================
+      // 1. CREATE SUPABASE AUTH ACCOUNT
+      // =========================================
+
       const { data: authData, error: authError } =
         await supabase.auth.signUp({
           email: formData.email,
@@ -136,19 +139,51 @@ function SignUp() {
         throw new Error("Account could not be created.");
       }
 
-      // 2. Generate admission number
+      // =========================================
+      // 2. GENERATE ADMISSION NUMBER
+      // =========================================
+
       const admissionNumber = `VW-${new Date().getFullYear()}-${user.id
         .replace(/-/g, "")
         .substring(0, 8)
         .toUpperCase()}`;
 
-      // 3. Prepare photo path
+      // =========================================
+      // 3. FIND SELECTED CLASS
+      // =========================================
+
+      let classId = null;
+
+      if (!isEnglishProgram) {
+        const { data: selectedClass, error: classError } =
+          await supabase
+            .from("classes")
+            .select("id")
+            .eq("class_name", formData.classSection)
+            .single();
+
+        if (classError || !selectedClass) {
+          throw new Error(
+            "The selected class could not be found."
+          );
+        }
+
+        classId = selectedClass.id;
+      }
+
+      // =========================================
+      // 4. PREPARE PHOTO PATH
+      // =========================================
+
       const fileExtension =
         photo.name.split(".").pop()?.toLowerCase() || "jpg";
 
       const filePath = `${user.id}/profile.${fileExtension}`;
 
-      // 4. Upload student photo
+      // =========================================
+      // 5. UPLOAD STUDENT PHOTO
+      // =========================================
+
       const { error: uploadError } = await supabase.storage
         .from("student-photos")
         .upload(filePath, photo, {
@@ -157,17 +192,25 @@ function SignUp() {
         });
 
       if (uploadError) {
-        throw new Error(`Photo upload failed: ${uploadError.message}`);
+        throw new Error(
+          `Photo upload failed: ${uploadError.message}`
+        );
       }
 
-      // 5. Get public photo URL
+      // =========================================
+      // 6. GET PUBLIC PHOTO URL
+      // =========================================
+
       const { data: publicUrlData } = supabase.storage
         .from("student-photos")
         .getPublicUrl(filePath);
 
       const photoUrl = publicUrlData.publicUrl;
 
-      // 6. Save student information
+      // =========================================
+      // 7. SAVE STUDENT INFORMATION
+      // =========================================
+
       const { error: studentError } = await supabase
         .from("students")
         .insert({
@@ -178,8 +221,7 @@ function SignUp() {
           date_of_birth: formData.dateOfBirth || null,
           phone: formData.phone,
           address: formData.address,
-          class_name: formData.className,
-          section: formData.section,
+          class_id: classId,
           course: formData.course,
           photo_url: photoUrl,
         });
@@ -190,33 +232,40 @@ function SignUp() {
         );
       }
 
-      // 7. Prepare student ID card information
+      // =========================================
+      // 8. PREPARE STUDENT ID CARD
+      // =========================================
+
       const newStudentCard = {
         full_name: formData.fullName,
         father_name: formData.fatherName,
         admission_number: admissionNumber,
-        class_name: formData.className,
-        section: formData.section,
+        class_section: formData.classSection,
         course: formData.course,
         photo_url: photoUrl,
       };
 
       setStudentCard(newStudentCard);
 
-      // 8. Show ID card popup
+      // =========================================
+      // 9. SHOW ID CARD POPUP
+      // =========================================
+
       setShowIdCard(true);
 
       setMessage("Account created successfully!");
 
-      // 9. Clear signup form
+      // =========================================
+      // 10. CLEAR SIGNUP FORM
+      // =========================================
+
       setFormData({
         fullName: "",
         fatherName: "",
         dateOfBirth: "",
         phone: "",
         address: "",
-        className: "",
-        section: "",
+        classSection: "",
         course: "",
         email: "",
         password: "",
@@ -246,6 +295,7 @@ function SignUp() {
         <div className="mx-auto flex max-w-3xl items-center justify-center">
           <div className="w-full rounded-3xl bg-white p-8 shadow-xl sm:p-12">
             <div className="mx-auto max-w-2xl">
+
               <p className="font-semibold uppercase tracking-wider text-[#00A6A6]">
                 Create Account
               </p>
@@ -270,7 +320,11 @@ function SignUp() {
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+              <form
+                onSubmit={handleSubmit}
+                className="mt-8 space-y-5"
+              >
+
                 {/* Student Photo */}
                 <div>
                   <label className="mb-2 block font-semibold text-[#12355B]">
@@ -326,6 +380,7 @@ function SignUp() {
 
                 {/* DOB + Phone */}
                 <div className="grid gap-5 sm:grid-cols-2">
+
                   <div>
                     <label className="mb-2 block font-semibold text-[#12355B]">
                       Date of Birth
@@ -356,6 +411,7 @@ function SignUp() {
                       className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
                     />
                   </div>
+
                 </div>
 
                 {/* Address */}
@@ -375,47 +431,42 @@ function SignUp() {
                   />
                 </div>
 
-                {/* Class + Section */}
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block font-semibold text-[#12355B]">
-                      Class
-                    </label>
+                {/* Class / Section */}
+                <div>
+                  <label className="mb-2 block font-semibold text-[#12355B]">
+                    Class / Section
+                  </label>
 
-                    <input
-                      type="text"
-                      name="className"
-                      value={formData.className}
-                      onChange={handleChange}
-                      placeholder={
-                        isEnglishProgram
-                          ? "Optional for English Language Program"
-                          : "e.g. Class 10"
-                      }
-                      required={!isEnglishProgram}
-                      className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
-                    />
-                  </div>
+                  <select
+                    name="classSection"
+                    value={formData.classSection}
+                    onChange={handleChange}
+                    required={!isEnglishProgram}
+                    disabled={isEnglishProgram}
+                    className="w-full rounded-xl border border-[#DDE7EA] bg-white px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20 disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    <option value="">
+                      {isEnglishProgram
+                        ? "Not required for English Language Program"
+                        : "Select class / section"}
+                    </option>
 
-                  <div>
-                    <label className="mb-2 block font-semibold text-[#12355B]">
-                      Section
-                    </label>
+                    {!isEnglishProgram &&
+                      schoolClasses.map((classSection) => (
+                        <option
+                          key={classSection}
+                          value={classSection}
+                        >
+                          {classSection}
+                        </option>
+                      ))}
+                  </select>
 
-                    <input
-                      type="text"
-                      name="section"
-                      value={formData.section}
-                      onChange={handleChange}
-                      placeholder={
-                        isEnglishProgram
-                          ? "Optional for English Language Program"
-                          : "e.g. A"
-                      }
-                      required={!isEnglishProgram}
-                      className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
-                    />
-                  </div>
+                  {!isEnglishProgram && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Select your exact class and section.
+                    </p>
+                  )}
                 </div>
 
                 {/* Course */}
@@ -431,7 +482,9 @@ function SignUp() {
                     required
                     className="w-full rounded-xl border border-[#DDE7EA] bg-white px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
                   >
-                    <option value="">Select course / program</option>
+                    <option value="">
+                      Select course / program
+                    </option>
 
                     <option value="Grade 1">Grade 1</option>
                     <option value="Grade 2">Grade 2</option>
@@ -441,10 +494,6 @@ function SignUp() {
                     <option value="Grade 6">Grade 6</option>
                     <option value="Grade 7">Grade 7</option>
                     <option value="Grade 8">Grade 8</option>
-                    <option value="Grade 9">Grade 9</option>
-                    <option value="Grade 10">Grade 10</option>
-                    <option value="Grade 11">Grade 11</option>
-                    <option value="Grade 12">Grade 12</option>
 
                     <option value="English Language Program">
                       English Language Program
@@ -488,7 +537,9 @@ function SignUp() {
 
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
+                      onClick={() =>
+                        setShowPassword(!showPassword)
+                      }
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#00A6A6] hover:text-[#12355B]"
                     >
                       {showPassword ? "Hide" : "Show"}
@@ -504,7 +555,11 @@ function SignUp() {
 
                   <div className="relative">
                     <input
-                      type={showConfirmPassword ? "text" : "password"}
+                      type={
+                        showConfirmPassword
+                          ? "text"
+                          : "password"
+                      }
                       name="confirmPassword"
                       value={formData.confirmPassword}
                       onChange={handleChange}
@@ -516,11 +571,15 @@ function SignUp() {
                     <button
                       type="button"
                       onClick={() =>
-                        setShowConfirmPassword(!showConfirmPassword)
+                        setShowConfirmPassword(
+                          !showConfirmPassword
+                        )
                       }
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#00A6A6] hover:text-[#12355B]"
                     >
-                      {showConfirmPassword ? "Hide" : "Show"}
+                      {showConfirmPassword
+                        ? "Hide"
+                        : "Show"}
                     </button>
                   </div>
                 </div>
@@ -531,7 +590,9 @@ function SignUp() {
                   disabled={loading}
                   className="w-full rounded-xl bg-[#12355B] px-6 py-3.5 font-semibold text-white transition-all duration-300 hover:-translate-y-1 hover:bg-[#00A6A6] hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {loading ? "Creating Account..." : "Create Student Account"}
+                  {loading
+                    ? "Creating Account..."
+                    : "Create Student Account"}
                 </button>
               </form>
 
@@ -550,11 +611,15 @@ function SignUp() {
       </div>
 
       {/* ================= ID CARD POPUP ================= */}
+
       {showIdCard && studentCard && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
+
           <div className="max-h-[95vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl sm:p-8">
+
             {/* Popup Header */}
             <div className="mb-6 flex items-center justify-between gap-4">
+
               <div>
                 <p className="text-sm font-semibold uppercase tracking-wider text-[#00A6A6]">
                   Registration Successful
@@ -580,9 +645,12 @@ function SignUp() {
 
             {/* ID Cards */}
             <div className="grid gap-6 md:grid-cols-2">
+
               {/* FRONT */}
               <div className="id-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
+
                 <div className="bg-[#12355B] px-6 py-6 text-center text-white">
+
                   <img
                     src={`${import.meta.env.BASE_URL}log.jpg`}
                     alt="VoW Logo"
@@ -596,9 +664,11 @@ function SignUp() {
                   <p className="text-sm text-[#00A6A6]">
                     School & English Language Center
                   </p>
+
                 </div>
 
                 <div className="flex flex-col items-center px-6 py-8">
+
                   <img
                     src={studentCard.photo_url}
                     alt={studentCard.full_name}
@@ -614,16 +684,21 @@ function SignUp() {
                   </p>
 
                   <div className="mt-6 w-full border-t border-slate-200 pt-5 text-center">
+
                     <p className="text-xs font-semibold uppercase tracking-wider text-[#00A6A6]">
                       Official Student Identification Card
                     </p>
+
                   </div>
+
                 </div>
               </div>
 
               {/* BACK */}
               <div className="id-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
+
                 <div className="bg-[#12355B] px-6 py-6 text-center text-white">
+
                   <p className="text-sm font-semibold text-[#00A6A6]">
                     STUDENT IDENTIFICATION
                   </p>
@@ -631,10 +706,13 @@ function SignUp() {
                   <h3 className="mt-1 text-xl font-bold">
                     STUDENT CARD
                   </h3>
+
                 </div>
 
                 <div className="px-6 py-7">
+
                   <div className="space-y-3 text-sm">
+
                     <p>
                       <span className="font-semibold text-[#12355B]">
                         Name:
@@ -658,16 +736,9 @@ function SignUp() {
 
                     <p>
                       <span className="font-semibold text-[#12355B]">
-                        Class:
+                        Class / Section:
                       </span>{" "}
-                      {studentCard.class_name}
-                    </p>
-
-                    <p>
-                      <span className="font-semibold text-[#12355B]">
-                        Section:
-                      </span>{" "}
-                      {studentCard.section}
+                      {studentCard.class_section || "N/A"}
                     </p>
 
                     <p>
@@ -676,25 +747,31 @@ function SignUp() {
                       </span>{" "}
                       {studentCard.course}
                     </p>
+
                   </div>
 
                   <div className="mt-6 flex justify-center">
+
                     <QRCodeCanvas
                       value={studentCard.admission_number}
                       size={140}
                       level="H"
                     />
+
                   </div>
 
                   <p className="mt-3 text-center text-xs text-slate-500">
                     Scan this QR code to identify the student.
                   </p>
+
                 </div>
               </div>
+
             </div>
 
             {/* Popup Buttons */}
             <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+
               <button
                 type="button"
                 onClick={handlePrint}
@@ -710,7 +787,9 @@ function SignUp() {
               >
                 Continue to Dashboard
               </button>
+
             </div>
+
           </div>
         </div>
       )}
