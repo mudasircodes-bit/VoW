@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
-import { supabase } from "../lib/supabaseClient";
 import { useRef, useState } from "react";
+import { supabase } from "../lib/supabaseClient";
 import TurnstileCaptcha from "../components/TurnstileCaptcha";
 
 function TeacherLogin() {
@@ -8,6 +8,7 @@ function TeacherLogin() {
   const captchaRef = useRef(null);
 
   const [captchaToken, setCaptchaToken] = useState("");
+
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -26,91 +27,97 @@ function TeacherLogin() {
     }));
   };
 
+  const resetCaptcha = () => {
+    captchaRef.current?.reset?.();
+    setCaptchaToken("");
+  };
+
+  // FORGOT PASSWORD
  const handleForgotPassword = async (e) => {
   e.preventDefault();
-  setLoading(true);
+
   setErrorMessage("");
   setSuccessMessage("");
 
+  const email = formData.email.trim();
+
+  if (!email) {
+    setErrorMessage("Please enter your teacher email.");
+    return;
+  }
+
+  if (!captchaToken) {
+    setErrorMessage(
+      "Please complete the CAPTCHA verification before continuing."
+    );
+    return;
+  }
+
+  setLoading(true);
+
   try {
-    const email = formData.email.trim();
-
-    if (!email) {
-      setErrorMessage("Please enter your teacher email.");
-      return;
-    }
-
-    const token =
-      captchaRef.current?.getResponse?.() || captchaToken;
-
-    if (!token) {
-      setErrorMessage(
-        "Please complete the CAPTCHA verification before continuing."
-      );
-      return;
-    }
-
-    const { error } =
-      await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo:
-          window.location.origin + "/reset-password",
-        captchaToken: token,
-      });
+    const { error } = await supabase.auth.resetPasswordForEmail(
+      email,
+      {
+        redirectTo: `${window.location.origin}/reset-password`,
+        captchaToken,
+      }
+    );
 
     if (error) {
       throw error;
     }
 
     setSuccessMessage(
-      "If an account exists for this email, a reset link will be sent. Check your inbox and spam folder."
+      "If an account exists for this email, a password-reset link will be sent. Please check your inbox and spam folder."
     );
   } catch (error) {
     setErrorMessage(
-      error.message || "Unable to send the reset email."
+      error.message || "Unable to send the reset email. Please try again."
     );
   } finally {
-    captchaRef.current?.reset?.();
-    setCaptchaToken("");
+    resetCaptcha();
     setLoading(false);
   }
 };
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
-        captchaToken,
-      });
 
-      if (error) throw error;
-
-      setSuccessMessage(
-        "If an account exists for this email, a password-reset link will be sent. Please check your inbox and spam folder."
-      );
-      setCaptchaToken("");
-      captchaRef.current?.reset?.();
-    } catch (error) {
-      setErrorMessage(
-        error.message || "Unable to send the reset email. Please try again."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // TEACHER LOGIN
   const handleLogin = async (e) => {
     e.preventDefault();
-    setLoading(true);
+
     setErrorMessage("");
     setSuccessMessage("");
 
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: formData.email.trim(),
-        password: formData.password,
-      });
+    if (!captchaToken) {
+      setErrorMessage(
+        "Please complete the CAPTCHA verification before logging in."
+      );
+      return;
+    }
 
-      if (error) throw error;
+    setLoading(true);
+
+    try {
+      const { data, error } =
+        await supabase.auth.signInWithPassword({
+          email: formData.email.trim(),
+          password: formData.password,
+          options: {
+            captchaToken,
+          },
+        });
+
+      if (error) {
+        throw error;
+      }
 
       const user = data.user;
 
+      if (!user) {
+        throw new Error("Unable to retrieve your account.");
+      }
+
+      // Verify teacher role
       const { data: roleData, error: roleError } = await supabase
         .from("user_roles")
         .select("role")
@@ -119,48 +126,58 @@ function TeacherLogin() {
 
       if (roleError || roleData?.role !== "teacher") {
         await supabase.auth.signOut();
+
         setErrorMessage(
           "This account is not authorized for the Teacher Portal."
         );
         return;
       }
 
-      const { data: teacherData, error: teacherError } = await supabase
-        .from("teachers")
-        .select("id")
-        .eq("id", user.id)
-        .maybeSingle();
+      // Verify teacher record
+      const { data: teacherData, error: teacherError } =
+        await supabase
+          .from("teachers")
+          .select("id")
+          .eq("id", user.id)
+          .maybeSingle();
 
       if (teacherError || !teacherData) {
         await supabase.auth.signOut();
+
         setErrorMessage(
           "Your teacher account is not approved or activated yet."
         );
         return;
       }
 
-      navigate("/teacher-dashboard", { replace: true });
+      navigate("/teacher-dashboard", {
+        replace: true,
+      });
     } catch (error) {
       setErrorMessage(
         error.message === "Invalid login credentials"
           ? "Invalid email or password."
-          : error.message || "Unable to log in. Please try again."
+          : error.message ||
+              "Unable to log in. Please try again."
       );
     } finally {
+      resetCaptcha();
       setLoading(false);
     }
   };
 
+  // RETURN TO LOGIN
   const returnToLogin = () => {
     setForgotPassword(false);
     setErrorMessage("");
     setSuccessMessage("");
-    setCaptchaToken("");
+    resetCaptcha();
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-8">
       <div className="w-full max-w-md rounded-2xl border border-[#DDE7EA] bg-white p-8 shadow-lg">
+        {/* HEADER */}
         <div className="mb-8 text-center">
           <img
             src="/log.jpg"
@@ -173,7 +190,9 @@ function TeacherLogin() {
           </p>
 
           <h1 className="mt-2 text-2xl font-bold text-[#12355B]">
-            {forgotPassword ? "Reset Your Password" : "Teacher Login"}
+            {forgotPassword
+              ? "Reset Your Password"
+              : "Teacher Login"}
           </h1>
 
           <p className="mt-2 text-sm text-[#64748B]">
@@ -183,6 +202,7 @@ function TeacherLogin() {
           </p>
         </div>
 
+        {/* ERROR MESSAGE */}
         {errorMessage && (
           <div
             role="alert"
@@ -192,6 +212,7 @@ function TeacherLogin() {
           </div>
         )}
 
+        {/* SUCCESS MESSAGE */}
         {successMessage && (
           <div
             role="status"
@@ -201,8 +222,12 @@ function TeacherLogin() {
           </div>
         )}
 
+        {/* FORGOT PASSWORD FORM */}
         {forgotPassword ? (
-          <form onSubmit={handleForgotPassword} className="space-y-5">
+          <form
+            onSubmit={handleForgotPassword}
+            className="space-y-5"
+          >
             <div>
               <label
                 htmlFor="reset-email"
@@ -240,12 +265,14 @@ function TeacherLogin() {
             <button
               type="button"
               onClick={returnToLogin}
+              disabled={loading}
               className="w-full text-sm font-semibold text-[#00A6A6] hover:underline"
             >
               ← Back to Teacher Login
             </button>
           </form>
         ) : (
+          /* TEACHER LOGIN FORM */
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
               <label
@@ -291,7 +318,9 @@ function TeacherLogin() {
 
                 <button
                   type="button"
-                  onClick={() => setShowPassword((prev) => !prev)}
+                  onClick={() =>
+                    setShowPassword((prev) => !prev)
+                  }
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#00A6A6] hover:text-[#12355B]"
                 >
                   {showPassword ? "Hide" : "Show"}
@@ -305,7 +334,7 @@ function TeacherLogin() {
                     setForgotPassword(true);
                     setErrorMessage("");
                     setSuccessMessage("");
-                    setCaptchaToken("");
+                    resetCaptcha();
                   }}
                   className="text-sm font-semibold text-[#00A6A6] hover:text-[#12355B] hover:underline"
                 >
@@ -329,6 +358,7 @@ function TeacherLogin() {
           </form>
         )}
 
+        {/* TEACHER SIGNUP LINK */}
         {!forgotPassword && (
           <div className="mt-6 text-center">
             <p className="text-sm text-[#64748B]">
