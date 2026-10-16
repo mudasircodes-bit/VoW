@@ -1,9 +1,14 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
+import TurnstileCaptcha from "../components/TurnstileCaptcha";
 
 function TeacherSignUp() {
   const navigate = useNavigate();
+  const captchaRef = useRef(null);
+  const errorRef = useRef(null);
+  // const filePath =`${user.id}/profile.${fileExtension}`;
+  const [captchaToken, setCaptchaToken] = useState("");
 
   const [formData, setFormData] = useState({
     fullName: "",
@@ -18,16 +23,31 @@ function TeacherSignUp() {
 
   const [photo, setPhoto] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
-
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
+  // Show errors at the top of the page.
+  const showError = (message) => {
+    setError(message);
+    setSuccess("");
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
     });
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+
+    setFormData((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
+
+    if (error) setError("");
   };
 
   const handlePhotoChange = (e) => {
@@ -39,14 +59,16 @@ function TeacherSignUp() {
     }
 
     if (!file.type.startsWith("image/")) {
-      setError("Please select a valid image.");
       setPhoto(null);
+      e.target.value = "";
+      showError("Please select a valid image.");
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      setError("Teacher photo must be less than 5 MB.");
       setPhoto(null);
+      e.target.value = "";
+      showError("Teacher photo must be less than 5 MB.");
       return;
     }
 
@@ -54,71 +76,100 @@ function TeacherSignUp() {
     setPhoto(file);
   };
 
+  const getPasswordError = (password) => {
+    if (password.length < 6) {
+      return "Your password must contain at least 6 characters.";
+    }
+
+    const missingRequirements = [];
+
+    if (!/[a-z]/.test(password)) {
+      missingRequirements.push("one lowercase letter (a–z)");
+    }
+
+    if (!/[A-Z]/.test(password)) {
+      missingRequirements.push("one uppercase letter (A–Z)");
+    }
+
+    if (!/[0-9]/.test(password)) {
+      missingRequirements.push("one number (0–9)");
+    }
+
+    if (!/[!@#$%^&*()_+\-=[\]{};':"\\|<>?,./`~]/.test(password)) {
+      missingRequirements.push("one special character (such as @, #, or !)");
+    }
+
+    if (missingRequirements.length === 1) {
+      return `Your password must contain at least ${missingRequirements[0]}.`;
+    }
+
+    if (missingRequirements.length > 1) {
+      const lastRequirement = missingRequirements.pop();
+
+      return `Your password must contain at least ${missingRequirements.join(
+        ", "
+      )}, and ${lastRequirement}.`;
+    }
+
+    return "";
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     setError("");
     setSuccess("");
 
     if (
-      !formData.fullName ||
-      !formData.fatherName ||
-      !formData.phone ||
-      !formData.email ||
-      !formData.teacherId ||
+      !formData.fullName.trim() ||
+      !formData.fatherName.trim() ||
+      !formData.phone.trim() ||
+      !formData.email.trim() ||
+      !formData.teacherId.trim() ||
       !formData.password ||
       !formData.confirmPassword ||
-      !formData.verificationCode
+      !formData.verificationCode.trim()
     ) {
-      setError("Please complete all required fields.");
+      showError("Please complete all required fields.");
       return;
     }
 
     if (!photo) {
-      setError("Please upload a teacher photo.");
+      showError("Please upload a teacher photo.");
       return;
     }
 
-    if (formData.password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    const passwordError = getPasswordError(formData.password);
+
+    if (passwordError) {
+      showError(passwordError);
       return;
     }
 
     if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match.");
+      showError("Your passwords do not match. Please check them.");
+      return;
+    }
+
+    if (!captchaToken) {
+      showError("Please complete the human verification check.");
+      return;
+    }
+
+    if (formData.verificationCode.trim().length < 6) {
+      showError("Please enter your school-provided verification code.");
       return;
     }
 
     setLoading(true);
 
     try {
-      /*
-       * STEP 1
-       * Verify the teacher's private school verification code.
-       *
-       * IMPORTANT:
-       * The actual school verification code should NOT be hard-coded
-       * in this React file.
-       *
-       * For now, this checks that the application contains a code.
-       * We will connect the code to a secure Supabase verification
-       * system in the next step.
-       */
-
-      if (formData.verificationCode.trim().length < 6) {
-        throw new Error("Please enter a valid teacher verification code.");
-      }
-
-      /*
-       * STEP 2
-       * Create the teacher's Supabase Auth account.
-       */
-
+      // 1. Create the teacher's Supabase Auth account.
       const { data: authData, error: authError } =
         await supabase.auth.signUp({
           email: formData.email.trim(),
           password: formData.password,
           options: {
+            captchaToken,
             data: {
               full_name: formData.fullName.trim(),
               role: "teacher",
@@ -126,8 +177,26 @@ function TeacherSignUp() {
           },
         });
 
+
+         console.log("Signup session exists:", !!authData?.session);
+  console.log("Signup user ID:", authData?.user?.id);
+
+
+      // Turnstile tokens are single-use.
+      captchaRef.current?.reset();
+      setCaptchaToken("");
+
       if (authError) {
-        throw authError;
+        if (
+          authError.message.toLowerCase().includes("already") ||
+          authError.message.toLowerCase().includes("registered")
+        ) {
+          throw new Error(
+            "An account with this email already exists. Please sign in."
+          );
+        }
+
+        throw new Error(authError.message);
       }
 
       const user = authData.user;
@@ -136,49 +205,31 @@ function TeacherSignUp() {
         throw new Error("Teacher account could not be created.");
       }
 
-      /*
-       * STEP 3
-       * Upload teacher photo.
-       *
-       * This requires a Supabase Storage bucket named:
-       * teacher-photos
-       */
-
+      // 2. Prepare the teacher photo path.
       const fileExtension =
         photo.name.split(".").pop()?.toLowerCase() || "jpg";
 
       const filePath = `${user.id}/profile.${fileExtension}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from("teacher-photos")
-        .upload(filePath, photo, {
-          upsert: true,
-          contentType: photo.type,
-        });
+const { error: uploadError } = await supabase.storage
+  .from("teacher-photos")
+  .upload(filePath, photo, {
+    upsert: true,
+    contentType: photo.type,
+  });
 
       if (uploadError) {
-        throw uploadError;
+        throw new Error(`Photo upload failed: ${uploadError.message}`);
       }
 
-      /*
-       * STEP 4
-       * Get public photo URL.
-       */
-
+      // 4. Get the public photo URL.
       const { data: publicUrlData } = supabase.storage
         .from("teacher-photos")
         .getPublicUrl(filePath);
 
       const photoUrl = publicUrlData?.publicUrl || null;
 
-      /*
-       * STEP 5
-       * Create teacher application.
-       *
-       * Status remains "pending".
-       * Admin must approve the teacher.
-       */
-
+      // 5. Submit the application as pending.
       const { error: applicationError } = await supabase
         .from("teacher_applications")
         .insert({
@@ -193,14 +244,10 @@ function TeacherSignUp() {
         });
 
       if (applicationError) {
-        throw applicationError;
+        throw new Error(
+          `Application submission failed: ${applicationError.message}`
+        );
       }
-
-      /*
-       * STEP 6
-       * Tell the teacher that the application is waiting
-       * for administration approval.
-       */
 
       setSuccess(
         "Your teacher application has been submitted and is waiting for admin approval."
@@ -218,9 +265,15 @@ function TeacherSignUp() {
       });
 
       setPhoto(null);
+
+      // Bring the success message into view too.
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
     } catch (err) {
       console.error("Teacher signup error:", err);
-      setError(err.message || "Teacher registration failed.");
+      showError(err.message || "Teacher registration failed.");
     } finally {
       setLoading(false);
     }
@@ -245,9 +298,31 @@ function TeacherSignUp() {
           </p>
         </div>
 
+        {/* Error and success messages at the top */}
+        {error && (
+          <div
+            ref={errorRef}
+            role="alert"
+            aria-live="assertive"
+            className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-sm font-medium leading-6 text-red-700"
+          >
+            {error}
+          </div>
+        )}
+
+        {success && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-6 rounded-xl border border-green-200 bg-green-50 px-4 py-4 text-sm font-medium leading-6 text-green-700"
+          >
+            {success}
+          </div>
+        )}
+
         {/* Form Card */}
         <div className="rounded-3xl border border-[#DDE7EA] bg-white p-6 shadow-sm sm:p-10">
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-6" noValidate>
             {/* Personal Information */}
             <div>
               <h2 className="text-xl font-bold text-[#12355B]">
@@ -255,29 +330,26 @@ function TeacherSignUp() {
               </h2>
 
               <div className="mt-5 grid gap-5 sm:grid-cols-2">
-                {/* Full Name */}
                 <div>
                   <label className="mb-2 block font-semibold text-[#12355B]">
                     Full Name
                   </label>
-
                   <input
                     type="text"
                     name="fullName"
                     value={formData.fullName}
                     onChange={handleChange}
                     placeholder="Enter full name"
+                    autoComplete="name"
                     className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
                     required
                   />
                 </div>
 
-                {/* Father Name */}
                 <div>
                   <label className="mb-2 block font-semibold text-[#12355B]">
                     Father Name
                   </label>
-
                   <input
                     type="text"
                     name="fatherName"
@@ -289,35 +361,33 @@ function TeacherSignUp() {
                   />
                 </div>
 
-                {/* Phone */}
                 <div>
                   <label className="mb-2 block font-semibold text-[#12355B]">
                     Phone Number
                   </label>
-
                   <input
                     type="tel"
                     name="phone"
                     value={formData.phone}
                     onChange={handleChange}
                     placeholder="03XX XXXXXXX"
+                    autoComplete="tel"
                     className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
                     required
                   />
                 </div>
 
-                {/* Teacher ID */}
                 <div>
                   <label className="mb-2 block font-semibold text-[#12355B]">
                     Teacher ID
                   </label>
-
                   <input
                     type="text"
                     name="teacherId"
                     value={formData.teacherId}
                     onChange={handleChange}
                     placeholder="School teacher ID"
+                    autoCapitalize="characters"
                     className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 uppercase outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
                     required
                   />
@@ -325,7 +395,7 @@ function TeacherSignUp() {
               </div>
             </div>
 
-            {/* Photo */}
+            {/* Teacher Photo */}
             <div>
               <h2 className="text-xl font-bold text-[#12355B]">
                 Teacher Photo
@@ -363,24 +433,22 @@ function TeacherSignUp() {
               </h2>
 
               <div className="mt-5 space-y-5">
-                {/* Email */}
                 <div>
                   <label className="mb-2 block font-semibold text-[#12355B]">
                     Email Address
                   </label>
-
                   <input
                     type="email"
                     name="email"
                     value={formData.email}
                     onChange={handleChange}
-                    placeholder="teacher@example.com"
+                    placeholder="Enter your email"
+                    autoComplete="email"
                     className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
                     required
                   />
                 </div>
 
-                {/* Password */}
                 <div>
                   <label className="mb-2 block font-semibold text-[#12355B]">
                     Password
@@ -392,14 +460,15 @@ function TeacherSignUp() {
                       name="password"
                       value={formData.password}
                       onChange={handleChange}
-                      placeholder="Minimum 6 characters"
+                      placeholder="Create a strong password"
+                      autoComplete="new-password"
                       className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 pr-24 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
                       required
                     />
 
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
+                      onClick={() => setShowPassword((previous) => !previous)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#00A6A6] hover:text-[#12355B]"
                     >
                       {showPassword ? "Hide" : "Show"}
@@ -407,26 +476,38 @@ function TeacherSignUp() {
                   </div>
                 </div>
 
-                {/* Confirm Password */}
                 <div>
                   <label className="mb-2 block font-semibold text-[#12355B]">
                     Confirm Password
                   </label>
 
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    name="confirmPassword"
-                    value={formData.confirmPassword}
-                    onChange={handleChange}
-                    placeholder="Enter password again"
-                    className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
-                    required
-                  />
+                  <div className="relative">
+                    <input
+                      type={showConfirmPassword ? "text" : "password"}
+                      name="confirmPassword"
+                      value={formData.confirmPassword}
+                      onChange={handleChange}
+                      placeholder="Enter password again"
+                      autoComplete="new-password"
+                      className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 pr-24 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
+                      required
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowConfirmPassword((previous) => !previous)
+                      }
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#00A6A6] hover:text-[#12355B]"
+                    >
+                      {showConfirmPassword ? "Hide" : "Show"}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Verification */}
+            {/* School Verification */}
             <div className="rounded-2xl border border-[#DDE7EA] bg-slate-50 p-6">
               <p className="font-semibold uppercase tracking-wider text-[#00A6A6]">
                 School Verification
@@ -442,37 +523,38 @@ function TeacherSignUp() {
               </p>
 
               <input
-                type="text"
+                type="password"
                 name="verificationCode"
                 value={formData.verificationCode}
                 onChange={handleChange}
                 placeholder="Enter verification code"
-                className="mt-4 w-full rounded-xl border border-[#DDE7EA] bg-white px-4 py-3 uppercase outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
+                autoComplete="off"
+                className="mt-4 w-full rounded-xl border border-[#DDE7EA] bg-white px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
                 required
               />
             </div>
 
-            {/* Error */}
-            {error && (
-              <div className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-                {error}
-              </div>
-            )}
+            {/* CAPTCHA */}
+            <div className="rounded-xl border border-[#DDE7EA] bg-slate-50 px-3 py-4">
+              <p className="mb-3 text-center text-sm font-medium text-[#12355B]">
+                Verify that you are human
+              </p>
 
-            {/* Success */}
-            {success && (
-              <div className="rounded-xl bg-green-50 px-4 py-4 text-sm font-medium text-green-700">
-                {success}
-              </div>
-            )}
+              <TurnstileCaptcha
+                ref={captchaRef}
+                onToken={setCaptchaToken}
+              />
+            </div>
 
             {/* Submit */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !captchaToken}
               className="w-full rounded-xl bg-[#12355B] px-6 py-3.5 font-semibold text-white transition-all duration-300 hover:-translate-y-1 hover:bg-[#00A6A6] hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? "Submitting Application..." : "Submit Teacher Application"}
+              {loading
+                ? "Submitting Application..."
+                : "Submit Teacher Application"}
             </button>
 
             {/* Login */}

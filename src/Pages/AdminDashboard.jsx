@@ -1,941 +1,596 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
+import TeacherCredentials from "./TeacherCredentials";
+
+const getClassLabel = (classInfo) => {
+  if (!classInfo) return "Class not assigned";
+
+  if (classInfo.class_name?.trim()) {
+    const name = classInfo.class_name.trim();
+    return /^class\b/i.test(name) ? name : `Class ${name}`;
+  }
+
+  if (classInfo.grade != null && classInfo.section) {
+    return `Class ${classInfo.grade}${classInfo.section}`;
+  }
+
+  return "Class not assigned";
+};
+
+const normalizeGender = (gender) =>
+  String(gender || "").trim().toLowerCase();
 
 function AdminDashboard() {
   const navigate = useNavigate();
 
-  const [students, setStudents] = useState([]);
-  const [attendance, setAttendance] = useState([]);
   const [teachers, setTeachers] = useState([]);
-  const [teacherInvites, setTeacherInvites] = useState([]);
 
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [selectedTeacherClass, setSelectedTeacherClass] = useState(null);
   const [classStudents, setClassStudents] = useState([]);
 
+  const [checkingAccess, setCheckingAccess] = useState(true);
   const [loadingTeachers, setLoadingTeachers] = useState(true);
   const [loadingClass, setLoadingClass] = useState(false);
-  const [loadingInvites, setLoadingInvites] = useState(true);
-  const [creatingInvite, setCreatingInvite] = useState(false);
 
-  const [selectedStudent, setSelectedStudent] = useState("");
-  const [attendanceDate, setAttendanceDate] = useState(
-    new Date().toISOString().split("T")[0]
-  );
-  const [attendanceStatus, setAttendanceStatus] = useState("present");
+  const [pageError, setPageError] = useState("");
+  const [classError, setClassError] = useState("");
 
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [inviteMessage, setInviteMessage] = useState("");
+  useEffect(() => {
+    let cancelled = false;
 
- const [checkingAccess, setCheckingAccess] = useState(true);
+    const loadDashboard = async () => {
+      try {
+        // Check the current Supabase session first.
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
 
-useEffect(() => {
-  const checkAdminAccess = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+        if (sessionError) throw sessionError;
 
-    if (!user) {
+        if (!session?.user) {
+          navigate("/admin-login", { replace: true });
+          return;
+        }
+
+        // Confirm that the current user is valid.
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (cancelled) return;
+
+        if (userError || !user) {
+          navigate("/admin-login", { replace: true });
+          return;
+        }
+
+        // Check administrator access.
+        const { data: roleData, error: roleError } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (cancelled) return;
+
+        if (roleError) {
+          throw roleError;
+        }
+
+        if (roleData?.role !== "admin") {
+          await supabase.auth.signOut();
+          navigate("/admin-login", { replace: true });
+          return;
+        }
+
+        // Load teachers and class assignments.
+        const [teacherResult, classResult] = await Promise.all([
+          supabase
+            .from("teachers")
+            .select("id, full_name, photo_url, gender")
+            .order("full_name"),
+
+          supabase
+            .from("classes")
+            .select("id, teacher_id, grade, section, class_name"),
+        ]);
+
+        if (cancelled) return;
+
+        const errors = [];
+
+        if (teacherResult.error) {
+          errors.push(`Teachers: ${teacherResult.error.message}`);
+        }
+
+        if (classResult.error) {
+          errors.push(
+            `Class assignments: ${classResult.error.message}`
+          );
+        }
+
+        const teacherRows = teacherResult.data || [];
+        const classRows = classResult.data || [];
+
+        const teachersWithClasses = teacherRows.map((teacher) => ({
+          ...teacher,
+          assignedClass:
+            classRows.find(
+              (classInfo) => classInfo.teacher_id === teacher.id
+            ) || null,
+        }));
+
+        setTeachers(teachersWithClasses);
+
+        if (errors.length) {
+          setPageError(errors.join(" • "));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setPageError(
+            err?.message || "Unable to load administration data."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setCheckingAccess(false);
+          setLoadingTeachers(false);
+        }
+      }
+    };
+
+    loadDashboard();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  // Teacher statistics.
+  const maleTeachers = teachers.filter(
+    (teacher) => normalizeGender(teacher.gender) === "male"
+  ).length;
+
+  const femaleTeachers = teachers.filter(
+    (teacher) => normalizeGender(teacher.gender) === "female"
+  ).length;
+
+  const totalTeachers = teachers.length;
+
+  // Log out safely, even when the session is missing.
+  const handleLogout = async () => {
+    try {
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError) throw sessionError;
+
+      if (session) {
+        const { error } = await supabase.auth.signOut();
+
+        if (error) throw error;
+      }
+
       navigate("/admin-login", { replace: true });
-      return;
-    }
-
-    const { data: roleData, error: roleError } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (roleError || roleData?.role !== "admin") {
-      await supabase.auth.signOut();
-      navigate("/admin-login", { replace: true });
-      return;
-    }
-
-    setCheckingAccess(false);
-
-    fetchStudents();
-    fetchAttendance();
-    fetchTeachers();
-    fetchTeacherInvites();
-  };
-
-  checkAdminAccess();
-}, [navigate]);
-
-  const fetchStudents = async () => {
-    const { data, error } = await supabase
-      .from("students")
-      .select(
-        "id, admission_number, full_name, father_name, class_name, section, course, photo_url, class_id"
-      )
-      .order("full_name");
-
-    if (error) {
-      console.error("Error loading students:", error);
-      return;
-    }
-
-    setStudents(data || []);
-  };
-
-  const fetchAttendance = async () => {
-    const { data, error } = await supabase
-      .from("attendance")
-      .select("id, student_id, attendance_date, status")
-      .order("attendance_date", { ascending: false });
-
-    if (error) {
-      console.error("Error loading attendance:", error);
-      return;
-    }
-
-    setAttendance(data || []);
-  };
-
-  const fetchTeachers = async () => {
-    setLoadingTeachers(true);
-
-    const { data, error } = await supabase
-      .from("teachers")
-      .select("id, full_name, email, photo_url, created_at")
-      .order("full_name");
-
-    if (error) {
-      console.error("Error loading teachers:", error);
-      setLoadingTeachers(false);
-      return;
-    }
-
-    setTeachers(data || []);
-    setLoadingTeachers(false);
-  };
-
-  /* ========================================= */
-  /* TEACHER INVITES */
-  /* ========================================= */
-
-  const fetchTeacherInvites = async () => {
-    setLoadingInvites(true);
-
-    const { data, error } = await supabase
-      .from("teacher_invites")
-      .select("id, teacher_id, verification_code, status, created_at")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("Error loading teacher invites:", error);
-      setLoadingInvites(false);
-      return;
-    }
-
-    setTeacherInvites(data || []);
-    setLoadingInvites(false);
-  };
-
-  const generateVerificationCode = () => {
-    const characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-    let code = "";
-
-    for (let i = 0; i < 8; i++) {
-      code += characters.charAt(
-        Math.floor(Math.random() * characters.length)
+    } catch (err) {
+      setPageError(
+        err?.message || "Unable to log out. Please try again."
       );
     }
-
-    return `${code.slice(0, 4)}-${code.slice(4)}`;
   };
 
-  const generateTeacherId = () => {
-    const year = new Date().getFullYear();
-
-    const existingIds = teacherInvites
-      .map((invite) => invite.teacher_id)
-      .filter((id) => id?.startsWith(`TCH-${year}-`));
-
-    let highestNumber = 0;
-
-    existingIds.forEach((id) => {
-      const number = parseInt(id.split("-")[2], 10);
-
-      if (!Number.isNaN(number) && number > highestNumber) {
-        highestNumber = number;
-      }
-    });
-
-    const nextNumber = String(highestNumber + 1).padStart(3, "0");
-
-    return `TCH-${year}-${nextNumber}`;
-  };
-
-  const createTeacherInvite = async () => {
-    setCreatingInvite(true);
-    setInviteMessage("");
-
-    const teacherId = generateTeacherId();
-    const verificationCode = generateVerificationCode();
-
-    const { error } = await supabase
-      .from("teacher_invites")
-      .insert({
-        teacher_id: teacherId,
-        verification_code: verificationCode,
-        status: "active",
-      });
-
-    if (error) {
-      console.error("Error creating teacher invite:", error);
-      setInviteMessage(error.message);
-      setCreatingInvite(false);
-      return;
-    }
-
-    setInviteMessage(
-      `Teacher credentials created: ${teacherId}`
-    );
-
-    await fetchTeacherInvites();
-
-    setCreatingInvite(false);
-  };
-
-  const disableTeacherInvite = async (inviteId) => {
-    const { error } = await supabase
-      .from("teacher_invites")
-      .update({ status: "disabled" })
-      .eq("id", inviteId);
-
-    if (error) {
-      console.error("Error disabling teacher invite:", error);
-      setInviteMessage(error.message);
-      return;
-    }
-
-    setInviteMessage("Teacher verification code disabled.");
-
-    await fetchTeacherInvites();
-  };
-
+  // Open a teacher's assigned class.
   const handleTeacherClick = async (teacher) => {
     setSelectedTeacher(teacher);
     setSelectedTeacherClass(null);
     setClassStudents([]);
+    setClassError("");
     setLoadingClass(true);
 
-    const { data: assignedClass, error: classError } = await supabase
-      .from("classes")
-      .select("id, grade, section, class_name")
-      .eq("teacher_id", teacher.id)
-      .maybeSingle();
+    try {
+      const { data: assignedClass, error: assignedClassError } =
+        await supabase
+          .from("classes")
+          .select("id, teacher_id, grade, section, class_name")
+          .eq("teacher_id", teacher.id)
+          .maybeSingle();
 
-    if (classError) {
-      console.error("Error loading teacher class:", classError);
+      if (assignedClassError) throw assignedClassError;
+
+      if (!assignedClass) {
+        setClassError(
+          "No class is currently assigned to this teacher."
+        );
+        return;
+      }
+
+      setSelectedTeacherClass(assignedClass);
+
+      // Retrieve only students assigned to this class.
+      const { data: studentsInClass, error: studentsError } =
+        await supabase
+          .from("students")
+          .select(
+            "id, admission_number, full_name, photo_url, class_id"
+          )
+          .eq("class_id", assignedClass.id)
+          .order("full_name");
+
+      if (studentsError) throw studentsError;
+
+      setClassStudents(studentsInClass || []);
+    } catch (err) {
+      setClassError(
+        err?.message || "Unable to load this teacher's class."
+      );
+    } finally {
       setLoadingClass(false);
-      return;
     }
-
-    if (!assignedClass) {
-      setLoadingClass(false);
-      return;
-    }
-
-    setSelectedTeacherClass(assignedClass);
-
-    const { data: studentsInClass, error: studentsError } = await supabase
-      .from("students")
-      .select(
-        "id, admission_number, full_name, father_name, date_of_birth, phone, address, class_name, section, course, photo_url, class_id"
-      )
-      .eq("class_id", assignedClass.id)
-      .order("full_name");
-
-    if (studentsError) {
-      console.error("Error loading class students:", studentsError);
-      setLoadingClass(false);
-      return;
-    }
-
-    setClassStudents(studentsInClass || []);
-    setLoadingClass(false);
   };
 
   const closeTeacherView = () => {
     setSelectedTeacher(null);
     setSelectedTeacherClass(null);
     setClassStudents([]);
+    setClassError("");
   };
 
-  const openStudentDashboard = (student) => {
-    navigate("/student-dashboard", {
-      state: {
-        studentId: student.id,
-        adminPreview: true,
-      },
-    });
-  };
+  if (checkingAccess) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-[#12355B]" />
 
-  const markAttendance = async (e) => {
-    e.preventDefault();
-
-    if (!selectedStudent) {
-      setMessage("Please select a student.");
-      return;
-    }
-
-    setLoading(true);
-    setMessage("");
-
-    const { error } = await supabase.from("attendance").upsert(
-      {
-        student_id: selectedStudent,
-        attendance_date: attendanceDate,
-        status: attendanceStatus,
-      },
-      {
-        onConflict: "student_id,attendance_date",
-      }
-    );
-
-    if (error) {
-      console.error(error);
-      setMessage(error.message);
-      setLoading(false);
-      return;
-    }
-
-    setMessage("Attendance saved successfully.");
-
-    await fetchAttendance();
-
-    setLoading(false);
-  };
-
-  const getStudentName = (studentId) => {
-    const student = students.find((item) => item.id === studentId);
-
-    return student
-      ? `${student.full_name} (${student.admission_number})`
-      : "Unknown Student";
-  };
-
-  const getStatusStyle = (status) => {
-    if (status === "present") {
-      return "bg-green-100 text-green-700";
-    }
-
-    if (status === "absent") {
-      return "bg-red-100 text-red-700";
-    }
-
-    return "bg-yellow-100 text-yellow-700";
-  };
-
- const handleLogout = async () => {
-  await supabase.auth.signOut();
-  window.location.href = `${import.meta.env.BASE_URL}login`;
-};
-
-if (checkingAccess) {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50">
-      <div className="text-center">
-        <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-[#12355B]" />
-
-        <p className="font-semibold text-[#12355B]">
-          Checking admin access...
-        </p>
+          <p className="font-semibold text-[#12355B]">
+            Checking admin access...
+          </p>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-return (
-  <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <header className="bg-[#12355B] px-6 py-5 text-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <div>
-            <p className="text-sm text-[#00A6A6]">Administration</p>
+  return (
+    <div className="min-h-screen bg-slate-50">
+      {/* Administration Header */}
+      <header className="bg-[#12355B] px-5 py-4 text-white sm:px-8">
+        <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <img
+              src={`${import.meta.env.BASE_URL}log.jpg`}
+              alt="The Voice of Wisdom"
+              className="h-11 w-11 rounded-xl bg-white object-contain p-1"
+            />
 
-            <h1 className="text-2xl font-bold">
-              Admin Dashboard
-            </h1>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-[#00A6A6]">
+                Administration
+              </p>
+
+              <h1 className="text-xl font-bold sm:text-2xl">
+                Admin Dashboard
+              </h1>
+            </div>
           </div>
 
           <button
+            type="button"
             onClick={handleLogout}
-            className="rounded-lg bg-white px-5 py-2 font-semibold text-[#12355B] transition hover:bg-[#00A6A6] hover:text-white"
+            className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[#12355B] transition hover:bg-[#00A6A6] hover:text-white sm:px-5"
           >
-            Logout
+            Log out
           </button>
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-6 py-10">
-        {/* Heading */}
-        <div className="mb-10">
-          <h2 className="text-3xl font-bold text-[#12355B]">
-            Administration Overview
-          </h2>
-
-          <p className="mt-2 text-slate-600">
-            Manage teachers, classes, students, attendance, results, and notices.
-          </p>
-        </div>
-
-        {/* Statistics */}
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <p className="text-sm font-semibold text-slate-500">
-              Total Students
-            </p>
-
-            <h3 className="mt-3 text-3xl font-bold text-[#12355B]">
-              {students.length}
-            </h3>
-          </div>
-
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <p className="text-sm font-semibold text-slate-500">
-              Courses
-            </p>
-
-            <h3 className="mt-3 text-3xl font-bold text-[#00A6A6]">
-              6
-            </h3>
-          </div>
-
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <p className="text-sm font-semibold text-slate-500">
-              Teachers
-            </p>
-
-            <h3 className="mt-3 text-3xl font-bold text-[#12355B]">
-              {teachers.length}
-            </h3>
-          </div>
-
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <p className="text-sm font-semibold text-slate-500">
-              Attendance Records
-            </p>
-
-            <h3 className="mt-3 text-3xl font-bold text-[#00A6A6]">
-              {attendance.length}
-            </h3>
-          </div>
-        </div>
-
-        {/* ========================================= */}
-        {/* TEACHER INVITATION SYSTEM */}
-        {/* ========================================= */}
-
-        <div className="mt-10 rounded-3xl border border-[#DDE7EA] bg-white p-8 shadow-sm">
-          <div className="mb-8">
-            <p className="font-semibold uppercase tracking-wider text-[#00A6A6]">
-              Teacher Registration
-            </p>
-
-            <h2 className="mt-2 text-3xl font-bold text-[#12355B]">
-              Teacher Registration Credentials
+      <main className="mx-auto max-w-screen-2xl px-5 py-7 sm:px-8 sm:py-9">
+        {/* Teacher Overview Only */}
+        <section className="mb-9">
+          <div className="mb-5">
+            <h2 className="text-2xl font-bold text-[#12355B] sm:text-3xl">
+              Administration Overview
             </h2>
 
-            <p className="mt-2 text-slate-600">
-              Create a Teacher ID and private verification code for a teacher.
+            <p className="mt-1 text-sm text-slate-500">
+              Teacher information and staff records.
             </p>
           </div>
 
-          <div className="rounded-2xl bg-slate-50 p-6">
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-xl font-bold text-[#12355B]">
-                  Create Teacher Credentials
-                </h3>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {/* Total Teachers */}
+            <div className="rounded-2xl border border-[#DDE7EA] bg-white p-5 shadow-sm">
+              <p className="text-sm font-medium text-slate-500">
+                Total Teachers
+              </p>
 
-                <p className="mt-1 text-sm text-slate-500">
-                  These credentials are provided privately to the teacher.
-                </p>
-              </div>
-
-              <button
-                onClick={createTeacherInvite}
-                disabled={creatingInvite}
-                className="rounded-xl bg-[#12355B] px-6 py-3 font-semibold text-white transition-all duration-300 hover:-translate-y-1 hover:bg-[#00A6A6] hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {creatingInvite
-                  ? "Creating..."
-                  : "Generate Teacher Credentials"}
-              </button>
+              <p className="mt-2 text-3xl font-bold text-[#12355B]">
+                {totalTeachers}
+              </p>
             </div>
 
-            {inviteMessage && (
-              <div className="mt-5 rounded-xl border border-[#DDE7EA] bg-white px-4 py-3 text-sm font-medium text-slate-700">
-                {inviteMessage}
-              </div>
-            )}
+            {/* Male Teachers */}
+            <div className="rounded-2xl border border-[#DDE7EA] bg-white p-5 shadow-sm">
+              <p className="text-sm font-medium text-slate-500">
+                Male Teachers
+              </p>
+
+              <p className="mt-2 text-3xl font-bold text-[#00A6A6]">
+                {maleTeachers}
+              </p>
+            </div>
+
+            {/* Female Teachers */}
+            <div className="rounded-2xl border border-[#DDE7EA] bg-white p-5 shadow-sm">
+              <p className="text-sm font-medium text-slate-500">
+                Female Teachers
+              </p>
+
+              <p className="mt-2 text-3xl font-bold text-[#12355B]">
+                {femaleTeachers}
+              </p>
+            </div>
           </div>
+        </section>
 
-          {/* Existing Credentials */}
-          <div className="mt-8">
-            <h3 className="mb-5 text-2xl font-bold text-[#12355B]">
-              Teacher Credentials
-            </h3>
-
-            {loadingInvites ? (
-              <div className="rounded-2xl bg-slate-50 p-8 text-center text-slate-500">
-                Loading teacher credentials...
-              </div>
-            ) : teacherInvites.length === 0 ? (
-              <div className="rounded-2xl bg-slate-50 p-8 text-center text-slate-500">
-                No teacher credentials have been generated yet.
-              </div>
-            ) : (
-              <div className="grid gap-5 md:grid-cols-2">
-                {teacherInvites.map((invite) => (
-                  <div
-                    key={invite.id}
-                    className="rounded-2xl border border-[#DDE7EA] bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-[#00A6A6] hover:shadow-lg"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-500">
-                          Teacher ID
-                        </p>
-
-                        <p className="mt-1 text-xl font-bold tracking-wide text-[#12355B]">
-                          {invite.teacher_id}
-                        </p>
-                      </div>
-
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${
-                          invite.status === "active"
-                            ? "bg-green-100 text-green-700"
-                            : invite.status === "used"
-                            ? "bg-blue-100 text-blue-700"
-                            : "bg-red-100 text-red-700"
-                        }`}
-                      >
-                        {invite.status}
-                      </span>
-                    </div>
-
-                    <div className="mt-5 rounded-xl bg-slate-50 p-4">
-                      <p className="text-sm font-semibold text-slate-500">
-                        Private Verification Code
-                      </p>
-
-                      <p className="mt-1 text-lg font-bold tracking-widest text-[#00A6A6]">
-                        {invite.verification_code}
-                      </p>
-                    </div>
-
-                    {invite.status === "active" && (
-                      <button
-                        onClick={() => disableTeacherInvite(invite.id)}
-                        className="mt-5 rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50"
-                      >
-                        Disable Code
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+        {pageError && (
+          <div
+            role="alert"
+            className="mb-7 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
+            {pageError}
           </div>
-        </div>
+        )}
 
-        {/* ========================================= */}
-        {/* TEACHER MANAGEMENT */}
-        {/* ========================================= */}
+        {/* Teacher Cards */}
+        <section>
+          <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-wider text-[#00A6A6]">
+                School Management
+              </p>
 
-        <div className="mt-10">
-          <div className="mb-6">
-            <p className="font-semibold uppercase tracking-wider text-[#00A6A6]">
-              School Management
-            </p>
+              <h2 className="mt-1 text-2xl font-bold text-[#12355B] sm:text-3xl">
+                Our Teachers
+              </h2>
 
-            <h2 className="mt-2 text-3xl font-bold text-[#12355B]">
-              Teachers
-            </h2>
+              <p className="mt-2 text-sm text-slate-500">
+                Select a teacher to open their assigned class.
+              </p>
+            </div>
 
-            <p className="mt-2 text-slate-600">
-              Select a teacher to view their assigned head class and students.
+            <p className="text-sm font-semibold text-slate-500">
+              {totalTeachers} teacher{totalTeachers === 1 ? "" : "s"}
             </p>
           </div>
 
           {loadingTeachers ? (
-            <div className="rounded-2xl bg-white p-8 text-center text-slate-500 shadow-sm">
-              Loading teachers...
+            <div className="rounded-2xl border border-[#DDE7EA] bg-white p-12 text-center text-slate-500">
+              Loading teacher cards...
             </div>
-          ) : teachers.length === 0 ? (
-            <div className="rounded-2xl border border-[#DDE7EA] bg-white p-8 text-center text-slate-500 shadow-sm">
-              No teachers have been registered yet.
+          ) : totalTeachers === 0 ? (
+            <div className="rounded-2xl border border-dashed border-[#DDE7EA] bg-white px-6 py-16 text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#E0F2EE] text-2xl font-bold text-[#12355B]">
+                T
+              </div>
+
+              <h3 className="mt-4 text-lg font-bold text-[#12355B]">
+                No teachers yet
+              </h3>
+
+              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+                Approved and assigned teachers will appear here.
+              </p>
             </div>
           ) : (
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:gap-6">
               {teachers.map((teacher) => (
                 <button
                   key={teacher.id}
+                  type="button"
                   onClick={() => handleTeacherClick(teacher)}
-                  className="group rounded-2xl border border-[#DDE7EA] bg-white p-6 text-left shadow-sm transition-all duration-300 hover:-translate-y-2 hover:border-[#00A6A6] hover:shadow-xl"
+                  aria-label={`Open ${
+                    teacher.full_name || "teacher"
+                  }'s class`}
+                  className={`group flex min-w-0 flex-col items-center rounded-2xl border bg-white p-4 text-center shadow-sm transition duration-200 hover:-translate-y-1 hover:border-[#00A6A6] hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#00A6A6] focus:ring-offset-2 sm:p-5 ${
+                    selectedTeacher?.id === teacher.id
+                      ? "border-[#00A6A6] ring-2 ring-[#00A6A6]/20"
+                      : "border-[#DDE7EA]"
+                  }`}
                 >
-                  <div className="flex items-center gap-5">
-                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-slate-100">
-                      {teacher.photo_url ? (
-                        <img
-                          src={teacher.photo_url}
-                          alt={teacher.full_name}
-                          className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-2xl font-bold text-[#12355B]">
-                          {teacher.full_name?.charAt(0)?.toUpperCase() || "T"}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="min-w-0">
-                      <h3 className="truncate text-xl font-bold text-[#12355B]">
-                        {teacher.full_name}
-                      </h3>
-
-                      <p className="mt-1 text-sm font-medium text-[#00A6A6]">
-                        Teacher
-                      </p>
-
-                      <p className="mt-2 truncate text-sm text-slate-500">
-                        {teacher.email || "No email available"}
-                      </p>
-                    </div>
+                  <div className="h-24 w-24 overflow-hidden rounded-2xl bg-[#E0F2EE] sm:h-28 sm:w-28">
+                    {teacher.photo_url ? (
+                      <img
+                        src={teacher.photo_url}
+                        alt={teacher.full_name || "Teacher"}
+                        loading="lazy"
+                        className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-3xl font-bold text-[#12355B]">
+                        {teacher.full_name
+                          ?.trim()
+                          ?.charAt(0)
+                          ?.toUpperCase() || "T"}
+                      </div>
+                    )}
                   </div>
 
-                  <div className="mt-5 border-t border-slate-100 pt-4">
-                    <span className="font-semibold text-[#00A6A6] transition group-hover:text-[#12355B]">
-                      View assigned class →
-                    </span>
-                  </div>
+                  <h3 className="mt-4 w-full truncate font-bold text-[#12355B]">
+                    {teacher.full_name || "Unnamed Teacher"}
+                  </h3>
+
+                  <p className="mt-1 text-sm font-medium text-[#00A6A6]">
+                    {getClassLabel(teacher.assignedClass)}
+                  </p>
                 </button>
               ))}
             </div>
           )}
-        </div>
+        </section>
 
-        {/* ========================================= */}
-        {/* SELECTED TEACHER → CLASS → STUDENTS */}
-        {/* ========================================= */}
-
+        {/* Selected Teacher's Assigned Class */}
         {selectedTeacher && (
-          <div className="mt-10 rounded-3xl border border-[#DDE7EA] bg-white p-8 shadow-sm">
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-4">
-                <div className="h-16 w-16 overflow-hidden rounded-full bg-slate-100">
+          <section
+            className="mt-10 scroll-mt-6 rounded-3xl border border-[#DDE7EA] bg-white p-5 shadow-sm sm:p-8"
+            aria-label={`${
+              selectedTeacher.full_name || "Teacher"
+            }'s class`}
+          >
+            <div className="flex flex-col justify-between gap-4 border-b border-slate-100 pb-6 sm:flex-row sm:items-center">
+              <div className="flex min-w-0 items-center gap-4">
+                <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-[#E0F2EE]">
                   {selectedTeacher.photo_url ? (
                     <img
                       src={selectedTeacher.photo_url}
-                      alt={selectedTeacher.full_name}
+                      alt={selectedTeacher.full_name || "Teacher"}
                       className="h-full w-full object-cover"
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-xl font-bold text-[#12355B]">
                       {selectedTeacher.full_name
+                        ?.trim()
                         ?.charAt(0)
                         ?.toUpperCase() || "T"}
                     </div>
                   )}
                 </div>
 
-                <div>
-                  <p className="text-sm font-semibold uppercase tracking-wider text-[#00A6A6]">
-                    Teacher
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-[#00A6A6]">
+                    Selected Teacher
                   </p>
 
-                  <h2 className="text-2xl font-bold text-[#12355B]">
-                    {selectedTeacher.full_name}
+                  <h2 className="truncate text-xl font-bold text-[#12355B] sm:text-2xl">
+                    {selectedTeacher.full_name || "Unnamed Teacher"}
                   </h2>
+
+                  {selectedTeacherClass && (
+                    <p className="mt-1 text-sm text-slate-500">
+                      {getClassLabel(selectedTeacherClass)}
+                    </p>
+                  )}
                 </div>
               </div>
 
               <button
+                type="button"
                 onClick={closeTeacherView}
-                className="rounded-xl border border-[#DDE7EA] px-5 py-2.5 font-semibold text-[#12355B] transition hover:border-[#00A6A6] hover:bg-[#00A6A6] hover:text-white"
+                className="rounded-lg border border-[#DDE7EA] px-4 py-2 text-sm font-semibold text-[#12355B] transition hover:border-[#00A6A6] hover:bg-[#E0F2EE]"
               >
-                Close
+                Close class
               </button>
             </div>
 
             {loadingClass ? (
-              <div className="mt-8 rounded-2xl bg-slate-50 p-8 text-center text-slate-500">
-                Loading assigned class...
+              <div className="py-12 text-center text-slate-500">
+                Loading assigned class and students...
               </div>
-            ) : !selectedTeacherClass ? (
-              <div className="mt-8 rounded-2xl bg-slate-50 p-8 text-center text-slate-500">
-                No class is currently assigned to this teacher.
+            ) : classError ? (
+              <div
+                role="alert"
+                className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800"
+              >
+                {classError}
               </div>
-            ) : (
+            ) : selectedTeacherClass ? (
               <>
-                {/* Assigned Class */}
-                <div className="mt-8 rounded-2xl bg-[#12355B] p-7 text-white">
-                  <p className="text-sm font-semibold uppercase tracking-wider text-[#00A6A6]">
-                    Head / Assigned Class
-                  </p>
+                <div className="mt-6 flex flex-col gap-3 rounded-2xl bg-[#12355B] p-5 text-white sm:flex-row sm:items-center sm:justify-between sm:p-6">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-[#00A6A6]">
+                      Assigned Class
+                    </p>
 
-                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                    <div>
-                      <h3 className="text-3xl font-bold">
-                        Class {selectedTeacherClass.class_name}
-                      </h3>
+                    <h3 className="mt-1 text-2xl font-bold">
+                      {getClassLabel(selectedTeacherClass)}
+                    </h3>
 
-                      <p className="mt-1 text-slate-200">
-                        Grade {selectedTeacherClass.grade} • Section{" "}
-                        {selectedTeacherClass.section}
-                      </p>
-                    </div>
+                    <p className="mt-1 text-sm text-slate-200">
+                      Class roster
+                    </p>
+                  </div>
 
-                    <p className="font-semibold text-[#00A6A6]">
-                      {classStudents.length} Student
-                      {classStudents.length === 1 ? "" : "s"}
+                  <div className="rounded-xl bg-white/10 px-4 py-3 sm:text-center">
+                    <p className="text-2xl font-bold">
+                      {classStudents.length}
+                    </p>
+
+                    <p className="text-xs text-slate-200">
+                      {classStudents.length === 1 ? "Student" : "Students"}
                     </p>
                   </div>
                 </div>
 
-                {/* Students */}
-                <div className="mt-8">
-                  <div className="mb-5">
-                    <h3 className="text-2xl font-bold text-[#12355B]">
-                      Students in Class {selectedTeacherClass.class_name}
-                    </h3>
+                <div className="mt-7">
+                  <h3 className="text-xl font-bold text-[#12355B]">
+                    Students in this class
+                  </h3>
 
-                    <p className="mt-1 text-slate-600">
-                      Only students assigned to this teacher's class are shown.
-                    </p>
-                  </div>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Only students assigned to this class are shown.
+                  </p>
 
                   {classStudents.length === 0 ? (
-                    <div className="rounded-2xl bg-slate-50 p-8 text-center text-slate-500">
-                      No students are currently assigned to this class.
+                    <div className="mt-5 rounded-2xl border border-dashed border-[#DDE7EA] bg-slate-50 px-5 py-12 text-center">
+                      <h4 className="font-semibold text-[#12355B]">
+                        No students assigned yet
+                      </h4>
+
+                      <p className="mt-2 text-sm text-slate-500">
+                        Students will appear when their registration is
+                        linked to this class.
+                      </p>
                     </div>
                   ) : (
-                    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                       {classStudents.map((student) => (
-                        <button
+                        <div
                           key={student.id}
-                          onClick={() => openStudentDashboard(student)}
-                          className="group rounded-2xl border border-[#DDE7EA] bg-white p-5 text-left shadow-sm transition-all duration-300 hover:-translate-y-2 hover:border-[#00A6A6] hover:shadow-xl"
+                          className="flex min-w-0 items-center gap-3 rounded-xl border border-[#DDE7EA] bg-white p-4 transition hover:border-[#00A6A6] hover:shadow-sm"
                         >
-                          <div className="flex items-center gap-4">
-                            <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full bg-slate-100">
-                              {student.photo_url ? (
-                                <img
-                                  src={student.photo_url}
-                                  alt={student.full_name}
-                                  className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-                                />
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center text-xl font-bold text-[#12355B]">
-                                  {student.full_name
-                                    ?.charAt(0)
-                                    ?.toUpperCase() || "S"}
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="min-w-0">
-                              <h4 className="truncate font-bold text-[#12355B]">
-                                {student.full_name}
-                              </h4>
-
-                              <p className="mt-1 text-sm text-slate-500">
-                                {student.admission_number}
-                              </p>
-
-                              <p className="mt-1 text-sm font-medium text-[#00A6A6]">
-                                Class {selectedTeacherClass.class_name}
-                              </p>
-                            </div>
+                          <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100">
+                            {student.photo_url ? (
+                              <img
+                                src={student.photo_url}
+                                alt={student.full_name || "Student"}
+                                loading="lazy"
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center text-xl font-bold text-[#12355B]">
+                                {student.full_name
+                                  ?.trim()
+                                  ?.charAt(0)
+                                  ?.toUpperCase() || "S"}
+                              </div>
+                            )}
                           </div>
 
-                          <div className="mt-4 border-t border-slate-100 pt-3">
-                            <span className="text-sm font-semibold text-[#00A6A6] transition group-hover:text-[#12355B]">
-                              Open Student Dashboard →
-                            </span>
+                          <div className="min-w-0">
+                            <h4 className="truncate font-semibold text-[#12355B]">
+                              {student.full_name || "Unnamed Student"}
+                            </h4>
+
+                            <p className="mt-1 break-words text-xs text-slate-500">
+                              {student.admission_number ||
+                                "No admission number"}
+                            </p>
                           </div>
-                        </button>
+                        </div>
                       ))}
                     </div>
                   )}
                 </div>
               </>
-            )}
-          </div>
+            ) : null}
+          </section>
+          
         )}
-
-        {/* ========================================= */}
-        {/* ATTENDANCE MANAGEMENT */}
-        {/* ========================================= */}
-
-        <div className="mt-10 rounded-3xl border border-[#DDE7EA] bg-white p-8 shadow-sm">
-          <div className="mb-8">
-            <p className="font-semibold uppercase tracking-wider text-[#00A6A6]">
-              Student Management
-            </p>
-
-            <h2 className="mt-2 text-3xl font-bold text-[#12355B]">
-              Attendance Management
-            </h2>
-
-            <p className="mt-2 text-slate-600">
-              Mark and update daily attendance for students.
-            </p>
-          </div>
-
-          <form
-            onSubmit={markAttendance}
-            className="grid gap-5 md:grid-cols-2"
-          >
-            <div>
-              <label className="mb-2 block font-semibold text-[#12355B]">
-                Student
-              </label>
-
-              <select
-                value={selectedStudent}
-                onChange={(e) => setSelectedStudent(e.target.value)}
-                className="w-full rounded-xl border border-[#DDE7EA] bg-white px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
-              >
-                <option value="">Select student</option>
-
-                {students.map((student) => (
-                  <option key={student.id} value={student.id}>
-                    {student.full_name} — {student.admission_number}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-2 block font-semibold text-[#12355B]">
-                Attendance Date
-              </label>
-
-              <input
-                type="date"
-                value={attendanceDate}
-                onChange={(e) => setAttendanceDate(e.target.value)}
-                className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
-              />
-            </div>
-
-            <div>
-              <label className="mb-2 block font-semibold text-[#12355B]">
-                Attendance Status
-              </label>
-
-              <select
-                value={attendanceStatus}
-                onChange={(e) => setAttendanceStatus(e.target.value)}
-                className="w-full rounded-xl border border-[#DDE7EA] bg-white px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
-              >
-                <option value="present">Present</option>
-                <option value="absent">Absent</option>
-                <option value="leave">Leave</option>
-              </select>
-            </div>
-
-            <div className="flex items-end">
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full rounded-xl bg-[#12355B] px-6 py-3.5 font-semibold text-white transition-all duration-300 hover:-translate-y-1 hover:bg-[#00A6A6] hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loading ? "Saving..." : "Save Attendance"}
-              </button>
-            </div>
-          </form>
-
-          {message && (
-            <div className="mt-5 rounded-xl bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
-              {message}
-            </div>
-          )}
-        </div>
-
-        {/* ========================================= */}
-        {/* RECENT ATTENDANCE */}
-        {/* ========================================= */}
-
-        <div className="mt-10 rounded-3xl border border-[#DDE7EA] bg-white p-8 shadow-sm">
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold text-[#12355B]">
-              Recent Attendance
-            </h2>
-
-            <p className="mt-1 text-slate-600">
-              Latest attendance records entered by administration.
-            </p>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px] text-left">
-              <thead>
-                <tr className="border-b border-[#DDE7EA]">
-                  <th className="px-4 py-4 text-sm font-semibold text-slate-500">
-                    Student
-                  </th>
-
-                  <th className="px-4 py-4 text-sm font-semibold text-slate-500">
-                    Date
-                  </th>
-
-                  <th className="px-4 py-4 text-sm font-semibold text-slate-500">
-                    Status
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {attendance.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan="3"
-                      className="px-4 py-8 text-center text-slate-500"
-                    >
-                      No attendance records yet.
-                    </td>
-                  </tr>
-                ) : (
-                  attendance.slice(0, 20).map((record) => (
-                    <tr
-                      key={record.id}
-                      className="border-b border-slate-100 transition hover:bg-slate-50"
-                    >
-                      <td className="px-4 py-4 font-medium text-[#12355B]">
-                        {getStudentName(record.student_id)}
-                      </td>
-
-                      <td className="px-4 py-4 text-slate-600">
-                        {record.attendance_date}
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <span
-                          className={`rounded-full px-3 py-1 text-sm font-semibold capitalize ${getStatusStyle(
-                            record.status
-                          )}`}
-                        >
-                          {record.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <TeacherCredentials />
       </main>
     </div>
   );

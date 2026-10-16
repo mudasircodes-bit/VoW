@@ -1,10 +1,14 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { QRCodeCanvas } from "qrcode.react";
 import { supabase } from "../lib/supabaseClient";
+import TurnstileCaptcha from "../components/TurnstileCaptcha";
 
 function SignUp() {
   const navigate = useNavigate();
+
+  const [captchaToken, setCaptchaToken] = useState("");
+  const captchaRef = useRef(null);
 
   const [formData, setFormData] = useState({
     fullName: "",
@@ -102,6 +106,12 @@ function SignUp() {
       return;
     }
 
+    // Cloudflare Turnstile verification
+    if (!captchaToken) {
+      setError("Please complete the human verification check.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -114,11 +124,16 @@ function SignUp() {
           email: formData.email,
           password: formData.password,
           options: {
+            captchaToken,
             data: {
               full_name: formData.fullName,
             },
           },
         });
+
+      // A Turnstile token can only be used once.
+      captchaRef.current?.reset();
+      setCaptchaToken("");
 
       if (authError) {
         if (
@@ -295,7 +310,6 @@ function SignUp() {
         <div className="mx-auto flex max-w-3xl items-center justify-center">
           <div className="w-full rounded-3xl bg-white p-8 shadow-xl sm:p-12">
             <div className="mx-auto max-w-2xl">
-
               <p className="font-semibold uppercase tracking-wider text-[#00A6A6]">
                 Create Account
               </p>
@@ -324,7 +338,6 @@ function SignUp() {
                 onSubmit={handleSubmit}
                 className="mt-8 space-y-5"
               >
-
                 {/* Student Photo */}
                 <div>
                   <label className="mb-2 block font-semibold text-[#12355B]">
@@ -380,7 +393,6 @@ function SignUp() {
 
                 {/* DOB + Phone */}
                 <div className="grid gap-5 sm:grid-cols-2">
-
                   <div>
                     <label className="mb-2 block font-semibold text-[#12355B]">
                       Date of Birth
@@ -411,7 +423,6 @@ function SignUp() {
                       className="w-full rounded-xl border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
                     />
                   </div>
-
                 </div>
 
                 {/* Address */}
@@ -537,9 +548,7 @@ function SignUp() {
 
                     <button
                       type="button"
-                      onClick={() =>
-                        setShowPassword(!showPassword)
-                      }
+                      onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#00A6A6] hover:text-[#12355B]"
                     >
                       {showPassword ? "Hide" : "Show"}
@@ -556,9 +565,7 @@ function SignUp() {
                   <div className="relative">
                     <input
                       type={
-                        showConfirmPassword
-                          ? "text"
-                          : "password"
+                        showConfirmPassword ? "text" : "password"
                       }
                       name="confirmPassword"
                       value={formData.confirmPassword}
@@ -571,23 +578,31 @@ function SignUp() {
                     <button
                       type="button"
                       onClick={() =>
-                        setShowConfirmPassword(
-                          !showConfirmPassword
-                        )
+                        setShowConfirmPassword(!showConfirmPassword)
                       }
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#00A6A6] hover:text-[#12355B]"
                     >
-                      {showConfirmPassword
-                        ? "Hide"
-                        : "Show"}
+                      {showConfirmPassword ? "Hide" : "Show"}
                     </button>
                   </div>
+                </div>
+
+                {/* Cloudflare Turnstile CAPTCHA */}
+                <div className="rounded-xl border border-[#DDE7EA] bg-slate-50 px-3 py-4">
+                  <p className="mb-3 text-center text-sm font-medium text-[#12355B]">
+                    Verify that you are human
+                  </p>
+
+                  <TurnstileCaptcha
+                    ref={captchaRef}
+                    onToken={setCaptchaToken}
+                  />
                 </div>
 
                 {/* Submit */}
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || !captchaToken}
                   className="w-full rounded-xl bg-[#12355B] px-6 py-3.5 font-semibold text-white transition-all duration-300 hover:-translate-y-1 hover:bg-[#00A6A6] hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {loading
@@ -614,12 +629,9 @@ function SignUp() {
 
       {showIdCard && studentCard && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
-
           <div className="max-h-[95vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl sm:p-8">
-
             {/* Popup Header */}
             <div className="mb-6 flex items-center justify-between gap-4">
-
               <div>
                 <p className="text-sm font-semibold uppercase tracking-wider text-[#00A6A6]">
                   Registration Successful
@@ -645,12 +657,9 @@ function SignUp() {
 
             {/* ID Cards */}
             <div className="grid gap-6 md:grid-cols-2">
-
               {/* FRONT */}
               <div className="id-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
-
                 <div className="bg-[#12355B] px-6 py-6 text-center text-white">
-
                   <img
                     src={`${import.meta.env.BASE_URL}log.jpg`}
                     alt="VoW Logo"
@@ -664,11 +673,9 @@ function SignUp() {
                   <p className="text-sm text-[#00A6A6]">
                     School & English Language Center
                   </p>
-
                 </div>
 
                 <div className="flex flex-col items-center px-6 py-8">
-
                   <img
                     src={studentCard.photo_url}
                     alt={studentCard.full_name}
@@ -684,21 +691,16 @@ function SignUp() {
                   </p>
 
                   <div className="mt-6 w-full border-t border-slate-200 pt-5 text-center">
-
                     <p className="text-xs font-semibold uppercase tracking-wider text-[#00A6A6]">
                       Official Student Identification Card
                     </p>
-
                   </div>
-
                 </div>
               </div>
 
               {/* BACK */}
               <div className="id-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
-
                 <div className="bg-[#12355B] px-6 py-6 text-center text-white">
-
                   <p className="text-sm font-semibold text-[#00A6A6]">
                     STUDENT IDENTIFICATION
                   </p>
@@ -706,13 +708,10 @@ function SignUp() {
                   <h3 className="mt-1 text-xl font-bold">
                     STUDENT CARD
                   </h3>
-
                 </div>
 
                 <div className="px-6 py-7">
-
                   <div className="space-y-3 text-sm">
-
                     <p>
                       <span className="font-semibold text-[#12355B]">
                         Name:
@@ -747,31 +746,25 @@ function SignUp() {
                       </span>{" "}
                       {studentCard.course}
                     </p>
-
                   </div>
 
                   <div className="mt-6 flex justify-center">
-
                     <QRCodeCanvas
                       value={studentCard.admission_number}
                       size={140}
                       level="H"
                     />
-
                   </div>
 
                   <p className="mt-3 text-center text-xs text-slate-500">
                     Scan this QR code to identify the student.
                   </p>
-
                 </div>
               </div>
-
             </div>
 
             {/* Popup Buttons */}
             <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-
               <button
                 type="button"
                 onClick={handlePrint}
@@ -787,9 +780,7 @@ function SignUp() {
               >
                 Continue to Dashboard
               </button>
-
             </div>
-
           </div>
         </div>
       )}

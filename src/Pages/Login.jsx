@@ -1,9 +1,13 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
+import TurnstileCaptcha from "../components/TurnstileCaptcha";
 
 function Login() {
   const navigate = useNavigate();
+
+  const [captchaToken, setCaptchaToken] = useState("");
+  const captchaRef = useRef(null);
 
   const [formData, setFormData] = useState({
     email: "",
@@ -25,21 +29,36 @@ function Login() {
     e.preventDefault();
 
     setError("");
-    setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: formData.email,
-      password: formData.password,
-    });
-
-    setLoading(false);
-
-    if (error) {
-      setError(error.message);
+    if (!captchaToken) {
+      setError("Please complete the Cloudflare security check first.");
       return;
     }
 
-    navigate("/student-dashboard");
+    setLoading(true);
+
+    try {
+      // FIX: Send the CAPTCHA token to Supabase.
+      const { error: loginError } =
+        await supabase.auth.signInWithPassword({
+          email: formData.email,
+          password: formData.password,
+          options: {
+            captchaToken,
+          },
+        });
+
+      if (loginError) {
+        setError(loginError.message);
+        return;
+      }
+
+      navigate("/student-dashboard");
+    } catch (err) {
+      setError(err.message || "Unable to sign in. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -162,6 +181,11 @@ function Login() {
                   </Link>
 
                 </div>
+
+                <TurnstileCaptcha
+                  ref={captchaRef}
+                  onToken={setCaptchaToken}
+                />
 
                 {/* Login */}
                 <button

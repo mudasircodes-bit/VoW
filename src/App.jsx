@@ -16,8 +16,9 @@ import AdminDashboard from "./Pages/AdminDashboard";
 import ForgotPassword from "./Pages/ForgotPassword";
 import ResetPassword from "./Pages/ResetPassword";
 
-
+import TeacherDashboard from "./Teacher/TeacherDashboard";
 import TeacherSignUp from "./Teacher/TeacherSignUp";
+import TeacherLogin from "./Teacher/TeacherLogin";
 
 function App() {
   return (
@@ -47,7 +48,8 @@ function App() {
 
         {/* teachers Portal */}
           <Route path="/teacher-signup" element={<TeacherSignUp />} />
-
+          <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
+            <Route path="/teacher-login" element={<TeacherLogin />} />
         {/* Admin Portal */}
         <Route path="/admin-dashboard" element={<AdminDashboard />} />
           <Route path="/admin-login" element={<AdminLogin />} />

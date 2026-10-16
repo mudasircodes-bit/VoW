@@ -1,9 +1,14 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+
+import { useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
+import TurnstileCaptcha from "../components/TurnstileCaptcha";
 
 function AdminLogin() {
   const navigate = useNavigate();
+
+  const [captchaToken, setCaptchaToken] = useState("");
+  const captchaRef = useRef(null);
 
   const [formData, setFormData] = useState({
     email: "",
@@ -14,55 +19,92 @@ function AdminLogin() {
   const [errorMessage, setErrorMessage] = useState("");
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
+    setFormData((previous) => ({
+      ...previous,
       [e.target.name]: e.target.value,
-    });
+    }));
+  };
+
+  const resetCaptcha = () => {
+    setCaptchaToken("");
+    captchaRef.current?.reset?.();
   };
 
   const handleLogin = async (e) => {
     e.preventDefault();
-
-    setLoading(true);
     setErrorMessage("");
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: formData.email,
-      password: formData.password,
-    });
+    // Get the latest CAPTCHA token.
+    const token =
+      captchaRef.current?.getResponse?.() || captchaToken;
 
-    if (error) {
-      setLoading(false);
-      setErrorMessage(error.message);
-      return;
-    }
-
-    const user = data.user;
-
-    const { data: roleData, error: roleError } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (roleError || roleData?.role !== "admin") {
-      await supabase.auth.signOut();
-
-      setLoading(false);
+    if (!token) {
       setErrorMessage(
-        "This account is not authorized for administration."
+        "Please complete the Cloudflare security check first."
       );
       return;
     }
 
-    setLoading(false);
-    navigate("/admin-dashboard", { replace: true });
+    setLoading(true);
+
+    try {
+      // Sign in and send the CAPTCHA token to Supabase.
+      const { data, error: loginError } =
+        await supabase.auth.signInWithPassword({
+          email: formData.email.trim(),
+          password: formData.password,
+          options: {
+            captchaToken: token,
+          },
+        });
+
+      if (loginError) {
+        setErrorMessage(loginError.message);
+        resetCaptcha();
+        return;
+      }
+
+      const user = data.user;
+
+      if (!user) {
+        setErrorMessage("Unable to verify your account.");
+        resetCaptcha();
+        return;
+      }
+
+      // Verify that this account has the admin role.
+      const { data: roleData, error: roleError } =
+        await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+      if (roleError || roleData?.role !== "admin") {
+        await supabase.auth.signOut();
+
+        setErrorMessage(
+          "This account is not authorized for administration."
+        );
+
+        resetCaptcha();
+        return;
+      }
+
+      navigate("/admin-dashboard", { replace: true });
+    } catch (err) {
+      setErrorMessage(
+        err.message || "An unexpected login error occurred."
+      );
+      resetCaptcha();
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-md rounded-2xl border border-[#DDE7EA] bg-white p-8 shadow-lg">
-        
         <div className="mb-8 text-center">
           <img
             src="/log.jpg"
@@ -80,7 +122,10 @@ function AdminLogin() {
         </div>
 
         {errorMessage && (
-          <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+          <div
+            role="alert"
+            className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600"
+          >
             {errorMessage}
           </div>
         )}
@@ -97,6 +142,7 @@ function AdminLogin() {
               value={formData.email}
               onChange={handleChange}
               placeholder="Enter admin email"
+              autoComplete="username"
               required
               className="w-full rounded-lg border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
             />
@@ -113,10 +159,16 @@ function AdminLogin() {
               value={formData.password}
               onChange={handleChange}
               placeholder="Enter admin password"
+              autoComplete="current-password"
               required
               className="w-full rounded-lg border border-[#DDE7EA] px-4 py-3 outline-none transition focus:border-[#00A6A6] focus:ring-2 focus:ring-[#00A6A6]/20"
             />
           </div>
+
+          <TurnstileCaptcha
+            ref={captchaRef}
+            onToken={setCaptchaToken}
+          />
 
           <button
             type="submit"
@@ -126,15 +178,6 @@ function AdminLogin() {
             {loading ? "Checking Access..." : "Admin Login"}
           </button>
         </form>
-
-          {/* <div className="mt-6 text-center">
-            <Link
-              to="/login"
-              className="text-sm font-medium text-[#00A6A6] hover:underline"
-            >
-              ← Back to Student Login
-            </Link>
-          </div> */}
       </div>
     </div>
   );
