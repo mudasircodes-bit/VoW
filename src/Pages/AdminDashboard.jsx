@@ -25,17 +25,22 @@ function AdminDashboard() {
   const navigate = useNavigate();
 
   const [teachers, setTeachers] = useState([]);
-
+  const [pendingApplications, setPendingApplications] = useState([]);
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [selectedTeacherClass, setSelectedTeacherClass] = useState(null);
   const [classStudents, setClassStudents] = useState([]);
 
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [loadingTeachers, setLoadingTeachers] = useState(true);
+  const [loadingApplications, setLoadingApplications] = useState(true);
   const [loadingClass, setLoadingClass] = useState(false);
+  const [reviewingApplicationId, setReviewingApplicationId] =
+    useState(null);
 
   const [pageError, setPageError] = useState("");
   const [classError, setClassError] = useState("");
+  const [applicationError, setApplicationError] = useState("");
+  const [applicationMessage, setApplicationMessage] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -87,8 +92,12 @@ function AdminDashboard() {
           return;
         }
 
-        // Load teachers and class assignments.
-        const [teacherResult, classResult] = await Promise.all([
+        // Load teachers, class assignments, and pending applications.
+        const [
+          teacherResult,
+          classResult,
+          applicationResult,
+        ] = await Promise.all([
           supabase
             .from("teachers")
             .select("id, full_name, photo_url, gender")
@@ -97,6 +106,14 @@ function AdminDashboard() {
           supabase
             .from("classes")
             .select("id, teacher_id, grade, section, class_name"),
+
+          supabase
+            .from("teacher_applications")
+            .select(
+              "id, user_id, full_name, father_name, phone, email, teacher_id, photo_url, status, created_at"
+            )
+            .eq("status", "pending")
+            .order("created_at", { ascending: false }),
         ]);
 
         if (cancelled) return;
@@ -113,6 +130,12 @@ function AdminDashboard() {
           );
         }
 
+        if (applicationResult.error) {
+          errors.push(
+            `Pending applications: ${applicationResult.error.message}`
+          );
+        }
+
         const teacherRows = teacherResult.data || [];
         const classRows = classResult.data || [];
 
@@ -125,6 +148,7 @@ function AdminDashboard() {
         }));
 
         setTeachers(teachersWithClasses);
+        setPendingApplications(applicationResult.data || []);
 
         if (errors.length) {
           setPageError(errors.join(" • "));
@@ -139,6 +163,7 @@ function AdminDashboard() {
         if (!cancelled) {
           setCheckingAccess(false);
           setLoadingTeachers(false);
+          setLoadingApplications(false);
         }
       }
     };
@@ -160,6 +185,108 @@ function AdminDashboard() {
   ).length;
 
   const totalTeachers = teachers.length;
+
+  // Approve or reject a pending teacher application.
+  const handleApplicationReview = async (application, action) => {
+    if (
+      !application?.id ||
+      reviewingApplicationId !== null
+    ) {
+      return;
+    }
+
+    if (action !== "approve" && action !== "reject") {
+      return;
+    }
+
+    const actionLabel = action === "approve" ? "approve" : "reject";
+
+    const confirmed = window.confirm(
+      `Are you sure you want to ${actionLabel} ${application.full_name}'s application?`
+    );
+
+    if (!confirmed) return;
+
+    setReviewingApplicationId(application.id);
+    setApplicationError("");
+    setApplicationMessage("");
+
+    try {
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError) throw sessionError;
+
+      if (!session?.access_token) {
+        throw new Error(
+          "Your admin session has expired. Please log in again."
+        );
+      }
+
+      const { data, error } = await supabase.functions.invoke(
+        "review-teacher-application",
+        {
+          body: {
+            applicationId: application.id,
+            action,
+          },
+        }
+      );
+
+      if (error) throw error;
+
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+
+      if (data?.success === false) {
+        throw new Error(
+          data.message || "The application could not be reviewed."
+        );
+      }
+
+      setPendingApplications((current) =>
+        current.filter((item) => item.id !== application.id)
+      );
+
+      // Add an approved teacher to the current list immediately.
+      if (action === "approve" && application.user_id) {
+        setTeachers((current) => {
+          const alreadyAdded = current.some(
+            (teacher) => teacher.id === application.user_id
+          );
+
+          if (alreadyAdded) return current;
+
+          return [
+            ...current,
+            {
+              id: application.user_id,
+              full_name: application.full_name,
+              photo_url: application.photo_url,
+              gender: null,
+              assignedClass: null,
+            },
+          ];
+        });
+      }
+
+      setApplicationMessage(
+        data?.message ||
+          `Teacher application ${
+            action === "approve" ? "approved" : "rejected"
+          } successfully.`
+      );
+    } catch (err) {
+      setApplicationError(
+        err?.message || "Unable to review this application."
+      );
+    } finally {
+      setReviewingApplicationId(null);
+    }
+  };
 
   // Log out safely, even when the session is missing.
   const handleLogout = async () => {
@@ -289,7 +416,7 @@ function AdminDashboard() {
       </header>
 
       <main className="mx-auto max-w-screen-2xl px-5 py-7 sm:px-8 sm:py-9">
-        {/* Teacher Overview Only */}
+        {/* Teacher Overview */}
         <section className="mb-9">
           <div className="mb-5">
             <h2 className="text-2xl font-bold text-[#12355B] sm:text-3xl">
@@ -335,6 +462,160 @@ function AdminDashboard() {
               </p>
             </div>
           </div>
+        </section>
+
+        {/* Pending Teacher Applications */}
+        <section className="mb-9 rounded-2xl border border-[#DDE7EA] bg-white p-5 shadow-sm sm:p-7">
+          <div className="mb-5">
+            <p className="text-sm font-semibold uppercase tracking-wider text-[#00A6A6]">
+              Staff Recruitment
+            </p>
+
+            <h2 className="mt-1 text-2xl font-bold text-[#12355B]">
+              Pending Teacher Applications
+            </h2>
+
+            <p className="mt-2 text-sm text-slate-500">
+              Review applications before granting teacher portal access.
+            </p>
+          </div>
+
+          {applicationError && (
+            <div
+              role="alert"
+              className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+            >
+              {applicationError}
+            </div>
+          )}
+
+          {applicationMessage && (
+            <div
+              role="status"
+              className="mb-4 rounded-xl border border-teal-200 bg-teal-50 p-3 text-sm text-teal-800"
+            >
+              {applicationMessage}
+            </div>
+          )}
+
+          {loadingApplications ? (
+            <p className="py-6 text-sm text-slate-500">
+              Loading applications...
+            </p>
+          ) : pendingApplications.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-[#DDE7EA] bg-slate-50 p-8 text-center">
+              <h3 className="font-semibold text-[#12355B]">
+                No pending applications
+              </h3>
+
+              <p className="mt-1 text-sm text-slate-500">
+                New teacher applications will appear here.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              {pendingApplications.map((application) => (
+                <article
+                  key={application.id}
+                  className="rounded-xl border border-[#DDE7EA] p-4 sm:p-5"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-[#E0F2EE]">
+                      {application.photo_url ? (
+                        <img
+                          src={application.photo_url}
+                          alt={application.full_name || "Applicant"}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-2xl font-bold text-[#12355B]">
+                          {application.full_name
+                            ?.charAt(0)
+                            ?.toUpperCase() || "T"}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <h3 className="break-words text-lg font-bold text-[#12355B]">
+                        {application.full_name}
+                      </h3>
+
+                      <p className="mt-1 break-words text-sm text-slate-600">
+                        {application.email}
+                      </p>
+
+                      <span className="mt-2 inline-block rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
+                        Pending review
+                      </span>
+                    </div>
+                  </div>
+
+                  <dl className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                    <div>
+                      <dt className="text-slate-500">Father's name</dt>
+                      <dd className="break-words font-medium text-[#12355B]">
+                        {application.father_name}
+                      </dd>
+                    </div>
+
+                    <div>
+                      <dt className="text-slate-500">Phone</dt>
+                      <dd className="break-words font-medium text-[#12355B]">
+                        {application.phone}
+                      </dd>
+                    </div>
+
+                    <div>
+                      <dt className="text-slate-500">Teacher ID</dt>
+                      <dd className="break-words font-medium text-[#12355B]">
+                        {application.teacher_id}
+                      </dd>
+                    </div>
+
+                    <div>
+                      <dt className="text-slate-500">Submitted</dt>
+                      <dd className="font-medium text-[#12355B]">
+                        {application.created_at
+                          ? new Date(
+                              application.created_at
+                            ).toLocaleDateString()
+                          : "Not available"}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                    <button
+                      type="button"
+                      disabled={reviewingApplicationId !== null}
+                      onClick={() =>
+                        handleApplicationReview(application, "approve")
+                      }
+                      className="flex-1 rounded-lg bg-[#12355B] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#00A6A6] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {reviewingApplicationId === application.id
+                        ? "Processing..."
+                        : "Approve application"}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={reviewingApplicationId !== null}
+                      onClick={() =>
+                        handleApplicationReview(application, "reject")
+                      }
+                      className="flex-1 rounded-lg border border-red-200 px-4 py-3 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {reviewingApplicationId === application.id
+                        ? "Processing..."
+                        : "Reject application"}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
 
         {pageError && (
@@ -588,8 +869,8 @@ function AdminDashboard() {
               </>
             ) : null}
           </section>
-          
         )}
+
         <TeacherCredentials />
       </main>
     </div>

@@ -3,6 +3,16 @@ import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import TurnstileCaptcha from "../components/TurnstileCaptcha";
 
+async function hashVerificationCode(code) {
+  const normalizedCode = code.trim().toUpperCase();
+  const bytes = new TextEncoder().encode(normalizedCode);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function TeacherSignUp() {
   const navigate = useNavigate();
   const captchaRef = useRef(null);
@@ -162,6 +172,32 @@ function TeacherSignUp() {
 
     setLoading(true);
 
+
+    // Validate the school-issued invitation first.
+const {
+  data: invitationData,
+  error: invitationError,
+} = await supabase.functions.invoke("validate-teacher-invite", {
+  body: {
+    teacherId: formData.teacherId.trim(),
+    verificationCode: formData.verificationCode.trim(),
+  },
+});
+
+if (invitationError) {
+  throw new Error(
+    invitationError.message || "Could not validate your school invitation."
+  );
+}
+
+if (!invitationData?.valid || !invitationData?.teacherId) {
+  throw new Error(
+    "Your teacher ID or verification code is invalid or already used."
+  );
+}
+
+const verifiedTeacherId = invitationData.teacherId;
+
     try {
       // 1. Create the teacher's Supabase Auth account.
       const { data: authData, error: authError } =
@@ -229,20 +265,24 @@ const { error: uploadError } = await supabase.storage
 
       const photoUrl = publicUrlData?.publicUrl || null;
 
-      // 5. Submit the application as pending.
-      const { error: applicationError } = await supabase
-        .from("teacher_applications")
-        .insert({
-          full_name: formData.fullName.trim(),
-          father_name: formData.fatherName.trim(),
-          phone: formData.phone.trim(),
-          email: formData.email.trim(),
-          teacher_id: formData.teacherId.trim(),
-          photo_url: photoUrl,
-          verification_code: formData.verificationCode.trim(),
-          status: "pending",
-        });
+const verificationCodeHash = await hashVerificationCode(
+  formData.verificationCode
+);
 
+     // 5. Submit the application as pending.
+const { error: applicationError } = await supabase
+  .from("teacher_applications")
+  .insert({
+    user_id: user.id,
+    full_name: formData.fullName.trim(),
+    father_name: formData.fatherName.trim(),
+    phone: formData.phone.trim(),
+    email: formData.email.trim(),
+teacher_id: verifiedTeacherId,
+    photo_url: photoUrl,
+    verification_code_hash: verificationCodeHash,
+    status: "pending",
+  });
       if (applicationError) {
         throw new Error(
           `Application submission failed: ${applicationError.message}`
